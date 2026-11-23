@@ -4,8 +4,8 @@ install/
 log/
 
 # LiDAR sürücüsü ve mesajları kendi git depolarında duruyor; burada takip edilmiyor
-src/rslidar_sdk/
-src/rslidar_msg/
+src/surucular/rslidar_sdk/
+src/surucular/rslidar_msg/
 
 # Editör ayarları
 .vscode/

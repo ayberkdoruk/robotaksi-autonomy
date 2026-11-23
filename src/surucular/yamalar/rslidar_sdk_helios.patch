@@ -1,0 +1,26 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5febf7d..28f75ff 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -5,7 +5,7 @@ project(rslidar_sdk)
+ #=======================================
+ # Custom Point Type (XYZI,XYZIRT, XYZIF, XYZIRTF)
+ #=======================================
+-set(POINT_TYPE XYZI)
++set(POINT_TYPE XYZIRT)
+ 
+ option(ENABLE_TRANSFORM "Enable transform functions" OFF)
+ if(${ENABLE_TRANSFORM})
+diff --git a/config/config.yaml b/config/config.yaml
+index 7bdf0c5..66281d7 100644
+--- a/config/config.yaml
++++ b/config/config.yaml
+@@ -7,7 +7,7 @@ common:
+   send_point_cloud_ros: true            # true: Send point cloud through ROS or ROS2
+ lidar:
+   - driver:
+-      lidar_type: RSM1             #  LiDAR type - RS16, RS32, RSBP, RSAIRY, RSAIRYLITE_ETH, RSFAIRY, RSHELIOS, RSHELIOS_16P, RS128, RS80, RS48, RSP128, RSP80, RSP48,
++      lidar_type: RSHELIOS             #  LiDAR type - RS16, RS32, RSBP, RSAIRY, RSAIRYLITE_ETH, RSFAIRY, RSHELIOS, RSHELIOS_16P, RS128, RS80, RS48, RSP128, RSP80, RSP48,
+                                    #               RSM1, RSM1_JUMBO, RSM2, RSM3, RSE1, RSMX, RSEMX.
+                                    
+       msop_port: 6699              #  Msop port of lidar
