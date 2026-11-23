@@ -3,7 +3,8 @@
 //
 // RoboSense Helios 32 LiDAR'ın nokta bulutunu (/rslidar_points) dinler,
 // seçilen yöndeki (sektördeki) engellere bakarak DUR / DIKKAT / GUVENLI
-// kararı verir ve sonuçları topic'lere yayınlar.
+// bölge durumunu belirler ve /engel/durum (robotaksi_msgs/EngelDurumu) olarak yayınlar.
+// Bu bir sürüş komutu değildir; ne yapılacağına sürüş yöntemi karar verir.
 //
 // NOT: Bu node LiDAR'ın kendisine veya sürücüsüne HİÇBİR ayar göndermez.
 //      Sadece sürücünün yayınladığı noktaları okur ve kendi içinde filtreler.
@@ -14,6 +15,7 @@
 #include <algorithm>   // std::max, std::nth_element
 #include <cmath>       // std::sqrt, std::cos, std::sin, std::isfinite, std::ceil
 #include <cstdio>      // std::snprintf
+#include <limits>      // std::numeric_limits
 #include <memory>
 #include <mutex>
 #include <string>
@@ -24,20 +26,18 @@
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "geometry_msgs/msg/point.hpp"
-#include "geometry_msgs/msg/point_stamped.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "std_msgs/msg/color_rgba.hpp"
-#include "std_msgs/msg/float32.hpp"
-#include "std_msgs/msg/string.hpp"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
+#include "robotaksi_msgs/msg/engel_durumu.hpp"
 
 constexpr double PI = 3.14159265358979323846;
 constexpr double DERECE_RADYAN = PI / 180.0;
 
-// Histerezis (metre): Engel tam sınırdayken (ör. 2.00 m) karar DUR/DIKKAT arasında
-// saniyede 10 kez gidip gelmesin diye, bir kararDAN ÇIKMAK için engelin sınırdan
+// Histerezis (metre): Engel tam sınırdayken (ör. 2.00 m) durum DUR/DIKKAT arasında
+// saniyede 10 kez gidip gelmesin diye, bir durumDAN ÇIKMAK için engelin sınırdan
 // bu kadar daha uzaklaşması gerekir. Örn: DUR'dan çıkmak için 2.0 + 0.1 = 2.1 m.
 constexpr double HISTEREZIS = 0.10;
 
@@ -134,25 +134,39 @@ std::string ayarlariKontrolEt(const Ayarlar & a)
   return "";
 }
 
-// Engel mesafesine ve bir önceki karara bakarak yeni kararı verir (histerezisli).
-std::string kararVer(
-  bool engel_var, double mesafe, const Ayarlar & a, const std::string & onceki)
+using EngelDurumu = robotaksi_msgs::msg::EngelDurumu;
+
+// Başlangıçta "önceki durum" yok: ilk turda durum değişti diye terminale yazılsın.
+constexpr uint8_t DURUM_YOK = 255;
+
+const char * durumAdi(uint8_t durum)
+{
+  switch (durum) {
+    case EngelDurumu::DUR: return "DUR";
+    case EngelDurumu::DIKKAT: return "DIKKAT";
+    case EngelDurumu::GUVENLI: return "GUVENLI";
+    default: return "BASLANGIC";
+  }
+}
+
+// Engel mesafesine ve bir önceki duruma bakarak yeni durumu belirler (histerezisli).
+uint8_t durumBelirle(bool engel_var, double mesafe, const Ayarlar & a, uint8_t onceki)
 {
   if (!engel_var) {
-    return "GUVENLI";
+    return EngelDurumu::GUVENLI;
   }
-  // Önceki karar DUR ise DUR'dan çıkmak için biraz daha uzaklaşmak gerekir
-  const double dur_esik = a.dur_mesafesi + (onceki == "DUR" ? HISTEREZIS : 0.0);
+  // Önceki durum DUR ise DUR'dan çıkmak için biraz daha uzaklaşmak gerekir
+  const double dur_esik = a.dur_mesafesi + (onceki == EngelDurumu::DUR ? HISTEREZIS : 0.0);
   const double dikkat_esik = a.dikkat_mesafesi +
-    ((onceki == "DUR" || onceki == "DIKKAT") ? HISTEREZIS : 0.0);
+    ((onceki == EngelDurumu::DUR || onceki == EngelDurumu::DIKKAT) ? HISTEREZIS : 0.0);
 
   if (mesafe < dur_esik) {
-    return "DUR";
+    return EngelDurumu::DUR;
   }
   if (mesafe < dikkat_esik) {
-    return "DIKKAT";
+    return EngelDurumu::DIKKAT;
   }
-  return "GUVENLI";
+  return EngelDurumu::GUVENLI;
 }
 
 // -----------------------------------------------------------------------------
@@ -175,14 +189,11 @@ public:
     param_callback_handle_ = add_on_set_parameters_callback(
       std::bind(&EngelNode::parametreDegisti, this, std::placeholders::_1));
 
-    karar_pub_ = create_publisher<std_msgs::msg::String>("/engel/karar", 10);
-    mesafe_pub_ = create_publisher<std_msgs::msg::Float32>("/engel/mesafe", 10);
+    // Durum + mesafe + durumu belirleyen nokta tek mesajda: okuyan taraf hepsini aynı turdan alır
+    durum_pub_ = create_publisher<EngelDurumu>("/engel/durum", 10);
     nokta_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       "/engel/filtrelenmis_noktalar", 10);
     gorsel_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/engel/gorsel", 10);
-    // Kararı veren noktanın konumu (panel ve hata ayıklama için)
-    engel_noktasi_pub_ = create_publisher<geometry_msgs::msg::PointStamped>(
-      "/engel/engel_noktasi", 10);
 
     nokta_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       "/rslidar_points", rclcpp::SensorDataQoS(),
@@ -277,7 +288,7 @@ private:
       declare_parameter<int64_t>("min_nokta_sayisi", 10, nokta_tanim));
 
     rcl_interfaces::msg::ParameterDescriptor canli_tanim;
-    canli_tanim.description = "Her turda karar ve mesafeyi terminale yaz";
+    canli_tanim.description = "Her turda durum ve mesafeyi terminale yaz";
     ayarlar_.canli_izleme = declare_parameter<bool>("canli_izleme", true, canli_tanim);
   }
 
@@ -412,47 +423,44 @@ private:
     // Kararı veren noktanın açısı (derece) — sadece bir nokta için atan2, ucuz
     const double engel_aci = std::atan2(engel.y, engel.x) / DERECE_RADYAN;
 
-    const std::string karar = kararVer(engel_var, engel_mesafesi, a, onceki_karar_);
+    const uint8_t durum = durumBelirle(engel_var, engel_mesafesi, a, onceki_durum_);
 
     // --- Terminale yaz ---
-    if (karar != onceki_karar_) {
-      RCLCPP_WARN(get_logger(), ">>> KARAR DEGISTI: %s -> %s",
-        onceki_karar_.c_str(), karar.c_str());
-      onceki_karar_ = karar;
+    if (durum != onceki_durum_) {
+      RCLCPP_WARN(get_logger(), ">>> DURUM DEGISTI: %s -> %s",
+        durumAdi(onceki_durum_), durumAdi(durum));
+      onceki_durum_ = durum;
     }
     if (a.canli_izleme) {
       if (engel_var) {
         RCLCPP_INFO(get_logger(), "[%-7s] engel: %5.2f m | aci %+6.1f | yukseklik %+5.2f m | %5d nokta",
-          karar.c_str(), engel_mesafesi, engel_aci, engel.z, tutulan_sayi);
+          durumAdi(durum), engel_mesafesi, engel_aci, engel.z, tutulan_sayi);
       } else {
         RCLCPP_INFO(get_logger(), "[%-7s] engel yok      | %5d nokta",
-          karar.c_str(), tutulan_sayi);
+          durumAdi(durum), tutulan_sayi);
       }
     }
 
-    if (engel_var) {
-      geometry_msgs::msg::PointStamped nokta_msg;
-      nokta_msg.header = msg->header;
-      nokta_msg.point.x = engel.x;
-      nokta_msg.point.y = engel.y;
-      nokta_msg.point.z = engel.z;
-      engel_noktasi_pub_->publish(nokta_msg);
-    }
-
     // --- Yayınla ---
-    std_msgs::msg::String karar_msg;
-    karar_msg.data = karar;
-    karar_pub_->publish(karar_msg);
-
-    std_msgs::msg::Float32 mesafe_msg;
-    mesafe_msg.data = static_cast<float>(engel_mesafesi);
-    mesafe_pub_->publish(mesafe_msg);
+    EngelDurumu durum_msg;
+    durum_msg.header = msg->header;
+    durum_msg.durum = durum;
+    durum_msg.engel_var = engel_var;
+    // Engel yoksa +inf: "mesafe < esik" gibi bir karşılaştırma yanlışlıkla doğru çıkmasın
+    durum_msg.mesafe = engel_var ? static_cast<float>(engel_mesafesi) :
+      std::numeric_limits<float>::infinity();
+    if (engel_var) {
+      durum_msg.engel_noktasi.x = engel.x;
+      durum_msg.engel_noktasi.y = engel.y;
+      durum_msg.engel_noktasi.z = engel.z;
+    }
+    durum_pub_->publish(durum_msg);
 
     if (bulut_gerekli) {
       nokta_pub_->publish(filtrelenmisBulutOlustur(*msg, std::move(tutulan_veri), tutulan_sayi));
     }
     if (gorsel_pub_->get_subscription_count() > 0) {
-      gorsel_pub_->publish(gorselOlustur(msg->header, a, karar, engel_var ? &engel : nullptr));
+      gorsel_pub_->publish(gorselOlustur(msg->header, a, durum, engel_var ? &engel : nullptr));
     }
   }
 
@@ -485,10 +493,10 @@ private:
     return c;
   }
 
-  static std_msgs::msg::ColorRGBA kararRengi(const std::string & karar, float a = 1.0f)
+  static std_msgs::msg::ColorRGBA durumRengi(uint8_t durum, float a = 1.0f)
   {
-    if (karar == "DUR") {return renk(1.0f, 0.1f, 0.1f, a);}
-    if (karar == "DIKKAT") {return renk(1.0f, 0.85f, 0.0f, a);}
+    if (durum == EngelDurumu::DUR) {return renk(1.0f, 0.1f, 0.1f, a);}
+    if (durum == EngelDurumu::DIKKAT) {return renk(1.0f, 0.85f, 0.0f, a);}
     return renk(0.1f, 0.9f, 0.2f, a);
   }
 
@@ -527,7 +535,7 @@ private:
 
   visualization_msgs::msg::MarkerArray gorselOlustur(
     const std_msgs::msg::Header & header, const Ayarlar & a,
-    const std::string & karar, const EngelNoktasi * engel)
+    uint8_t durum, const EngelNoktasi * engel)
   {
     using visualization_msgs::msg::Marker;
     const double mesafe = engel ? engel->r : -1.0;
@@ -541,7 +549,7 @@ private:
     // 0) İzlenen alan: min_mesafe ile dikkat_mesafesi arasındaki yarı saydam halka dilimi
     Marker alan = yeniMarker(header, 0, Marker::TRIANGLE_LIST);
     alan.scale.x = alan.scale.y = alan.scale.z = 1.0;
-    alan.color = kararRengi(karar, 0.18f);
+    alan.color = durumRengi(durum, 0.18f);
     for (size_t i = 0; i + 1 < dikkat_yay.size(); ++i) {
       // Her parça iki üçgenden oluşan bir dörtgen
       alan.points.push_back(ic_yay[i]);
@@ -589,17 +597,17 @@ private:
     on_yazi.text = "ON (0)";
     dizi.markers.push_back(on_yazi);
 
-    // 5) Karar yazısı
+    // 5) Durum yazısı
     Marker yazi = yeniMarker(header, 5, Marker::TEXT_VIEW_FACING);
     yazi.pose.position = nokta(0.0, 0.0, 1.5);
     yazi.scale.z = 0.4;
-    yazi.color = kararRengi(karar);
+    yazi.color = durumRengi(durum);
     if (mesafe >= 0.0) {
       char tampon[32];
-      std::snprintf(tampon, sizeof(tampon), "%s %.1f m", karar.c_str(), mesafe);
+      std::snprintf(tampon, sizeof(tampon), "%s %.1f m", durumAdi(durum), mesafe);
       yazi.text = tampon;
     } else {
-      yazi.text = karar;
+      yazi.text = durumAdi(durum);
     }
     dizi.markers.push_back(yazi);
 
@@ -610,9 +618,9 @@ private:
     if (engel) {
       top.pose.position = nokta(engel->x, engel->y, engel->z);
       top.scale.x = top.scale.y = top.scale.z = 0.25;
-      top.color = kararRengi(karar);
+      top.color = durumRengi(durum);
       cizgi.scale.x = 0.02;
-      cizgi.color = kararRengi(karar, 0.8f);
+      cizgi.color = durumRengi(durum, 0.8f);
       cizgi.points.push_back(nokta(0.0, 0.0));
       cizgi.points.push_back(nokta(engel->x, engel->y, engel->z));
     } else {
@@ -630,9 +638,8 @@ private:
   // Üye değişkenler
   // ---------------------------------------------------------------------------
   Ayarlar ayarlar_;
-  std::string onceki_karar_ = "BASLANGIC";
+  uint8_t onceki_durum_ = DURUM_YOK;
   std::vector<EngelNoktasi> adaylar_;
-  rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr engel_noktasi_pub_;
 
   // Kapanışta ekranı temizlemek için (ekraniTemizle)
   std::mutex kapanis_mutex_;
@@ -640,8 +647,7 @@ private:
   sensor_msgs::msg::PointCloud2 son_bulut_sablonu_;  // son bulutun başlığı + alanları, verisiz
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr nokta_sub_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr karar_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr mesafe_pub_;
+  rclcpp::Publisher<EngelDurumu>::SharedPtr durum_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr nokta_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr gorsel_pub_;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;

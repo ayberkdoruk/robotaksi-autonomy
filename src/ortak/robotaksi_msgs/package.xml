@@ -3,7 +3,7 @@
 <package format="3">
   <name>robotaksi_msgs</name>
   <version>0.1.0</version>
-  <description>Robotaksi çalışma alanının ortak mesajları (şimdilik LiDAR nesne algılama: Nesne, NesneDizisi)</description>
+  <description>Robotaksi çalışma alanının ortak mesajları (LiDAR algılama: EngelDurumu, Nesne, NesneDizisi)</description>
   <maintainer email="ayberk@todo.todo">ayberk</maintainer>
   <license>Apache-2.0</license>
 

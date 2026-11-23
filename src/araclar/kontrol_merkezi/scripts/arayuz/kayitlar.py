@@ -20,7 +20,7 @@ from . import lidar_bilgi
 TARIHLI_AD = re.compile(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})_(.*)$")
 
 # Algılama sonuçlarını da kaydet seçeneğinde eklenen topic'ler
-ALGILAMA_KONULARI = ["/engel/karar", "/engel/mesafe", "/engel/engel_noktasi", "/engel/gorsel",
+ALGILAMA_KONULARI = ["/engel/durum", "/engel/gorsel",
                      "/nesne/liste", "/nesne/gorsel"]
 
 SIKISTIRMALAR = [("zstd_fast", "Hızlı sıkıştırma (önerilen, ~yarı boyut)"),

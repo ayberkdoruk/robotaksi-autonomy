@@ -9,4 +9,5 @@ sürücüleri kullanır.
 | `yamalar/` | Dış sürücülere uyguladığımız değişiklikler. `rslidar_sdk_helios.patch`: Helios 32 için `lidar_type: RSHELIOS` ve `POINT_TYPE XYZIRT` |
 
 İleride: ZED kamera, GPS, encoder sürücüleri. Dış depodan gelen bir sürücüyü `robotaksi.repos`'a
-ekleyin; değişiklik gerekirse dosyayı elle değiştirip bırakmak yerine `yamalar/` altına yama koyun.
+ekleyin; değişiklik gerekirse dosyayı elle değiştirip bırakmak yerine `yamalar/` altına yama koyun ve
+[`scripts/dis_depolari_cek.sh`](../../scripts/dis_depolari_cek.sh) içindeki `YAMALAR` listesine ekleyin.

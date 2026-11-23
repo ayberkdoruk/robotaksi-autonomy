@@ -21,10 +21,12 @@ Arayüz, ayar paneli ve kayıt/oynatma [`kontrol_merkezi`](../../araclar/kontrol
 
 ## ✨ Ne yapar?
 
-**`engel_node` — sektör tabanlı engel kararı**
+**`engel_node` — sektör tabanlı engel durumu**
 - LiDAR'ın etrafında istediğiniz yöne, istediğiniz genişlikte bir **yelpaze** (sektör) çizer.
 - Yelpazenin içindeki, yükseklik ve mesafe filtresinden geçen noktalara bakar.
-- En yakın engele göre **DUR** (kırmızı), **DİKKAT** (sarı) veya **GÜVENLİ** (yeşil) kararı yayınlar.
+- En yakın engelin hangi bölgede olduğunu **DUR** (kırmızı), **DİKKAT** (sarı) veya **GÜVENLİ** (yeşil)
+  olarak, mesafesi ve konumuyla birlikte `/engel/durum`'da yayınlar. Bu bir sürüş komutu değildir:
+  bu bilgiyle ne yapılacağına sürüş yöntemi karar verir.
 - Tek tük gürültü noktaları (toz, yağmur, yansıma) karar vermesin diye **en az N nokta** şartı ve
   mesafeyi en yakın N'inci noktaya göre ölçer.
 - Engel tam sınırdayken kararın titrememesi için **histerezis** (10 cm) uygular.
@@ -78,7 +80,7 @@ flowchart LR
     S -->|/rslidar_points<br/>PointCloud2, 10 Hz| E[engel_node]
     S -->|/rslidar_points| N[nesne_node]
 
-    E -->|/engel/karar<br/>/engel/mesafe| P[ayar_paneli<br/>kontrol_merkezi]
+    E -->|/engel/durum<br/>EngelDurumu| P[ayar_paneli<br/>kontrol_merkezi]
     E -->|/engel/gorsel<br/>/engel/filtrelenmis_noktalar| R[RViz]
     N -->|/nesne/gorsel<br/>/nesne/kumeler<br/>/nesne/zemin| R
     N -->|/nesne/liste<br/>NesneDizisi| F[Başka node'lar<br/>ör. kamera füzyonu]
@@ -95,8 +97,8 @@ flowchart LR
 3. **Yükseklik filtresi** — `z_min` altındaki (zemin) ve `z_max` üstündeki (tavan, ağaç dalı) noktalar atılır.
 4. **Gürültü filtresi** — kalan nokta sayısı `min_nokta_sayisi`'ndan azsa engel yok sayılır. Engel mesafesi
    olarak en yakın noktanın değil, **en yakın N'inci noktanın** mesafesi kullanılır (tek bir yansıma DUR verdiremez).
-5. **Karar** — mesafe `dur_mesafesi`'nden küçükse DUR, `dikkat_mesafesi`'nden küçükse DİKKAT, değilse GÜVENLİ.
-   Bir karardan **çıkmak** için engelin sınırdan 10 cm daha uzaklaşması gerekir (histerezis).
+5. **Durum** — mesafe `dur_mesafesi`'nden küçükse DUR, `dikkat_mesafesi`'nden küçükse DİKKAT, değilse GÜVENLİ.
+   Bir durumdan **çıkmak** için engelin sınırdan 10 cm daha uzaklaşması gerekir (histerezis).
 
 ### `nesne_node` her turda
 
@@ -228,9 +230,7 @@ ros2 param set /nesne_node zemin_z -1.80
 
 | Topic | Tip | Açıklama |
 |---|---|---|
-| `/engel/karar` | `std_msgs/String` | `DUR`, `DIKKAT` veya `GUVENLI` |
-| `/engel/mesafe` | `std_msgs/Float32` | Engelin mesafesi (m) |
-| `/engel/engel_noktasi` | `geometry_msgs/PointStamped` | Kararı veren noktanın konumu |
+| `/engel/durum` | `robotaksi_msgs/EngelDurumu` | Bölge durumu (`GUVENLI` / `DIKKAT` / `DUR`), mesafe, durumu belirleyen nokta |
 | `/engel/filtrelenmis_noktalar` | `sensor_msgs/PointCloud2` | Tüm filtrelerden geçen noktalar |
 | `/engel/gorsel` | `visualization_msgs/MarkerArray` | Yelpaze, DUR/DİKKAT yayları, karar yazısı |
 
@@ -243,6 +243,32 @@ ros2 param set /nesne_node zemin_z -1.80
 | `/nesne/kumeler` | `sensor_msgs/PointCloud2` | Her nesne ayrı renkte noktalar |
 | `/nesne/zemin` | `sensor_msgs/PointCloud2` | Zemin olarak ayrılan noktalar |
 | `/nesne/zemin_disi` | `sensor_msgs/PointCloud2` | Zemin dışında kalan noktalar |
+
+### `robotaksi_msgs/EngelDurumu`
+
+```
+uint8 GUVENLI = 0
+uint8 DIKKAT = 1
+uint8 DUR = 2
+
+std_msgs/Header header             # gelen nokta bulutunun başlığı (zaman + frame)
+uint8 durum                        # GUVENLI | DIKKAT | DUR (histerezisli)
+bool engel_var                     # yelpazede en az min_nokta_sayisi nokta var mı
+float32 mesafe                     # en yakın N'inci noktanın mesafesi (m); engel yoksa +inf
+geometry_msgs/Point engel_noktasi  # durumu belirleyen nokta; engel yoksa (0, 0, 0)
+```
+
+Durumu metinle değil sabitle karşılaştırın; yazım hatası derleme / çalışma anında yakalanır:
+
+```cpp
+if (msg.durum == robotaksi_msgs::msg::EngelDurumu::DUR) { ... }
+```
+
+```python
+if msg.durum == EngelDurumu.DUR: ...
+```
+
+Engel yoksa `mesafe` `+inf`'tir, böylece `mesafe < esik` gibi bir kontrol yanlışlıkla doğru çıkmaz.
 
 ### `robotaksi_msgs/Nesne`
 
@@ -271,7 +297,7 @@ uint32 yas                         # kaç turdur takipte
 Hızlıca izlemek için:
 
 ```bash
-ros2 topic echo /engel/karar
+ros2 topic echo /engel/durum
 ```
 
 ```bash
@@ -323,7 +349,7 @@ lidar_algilama/
 ├── launch/
 │   └── lidar_algilama.launch.py # iki düğüm
 └── src/
-    ├── engel_node.cpp           # sektör tabanlı DUR / DİKKAT / GÜVENLİ
+    ├── engel_node.cpp           # sektör tabanlı engel durumu (DUR / DİKKAT / GÜVENLİ)
     ├── nesne_node.cpp           # nesne algılamanın ROS tarafı
     └── nesne/                   # ROS'tan bağımsız algoritmalar
         ├── zemin.*              #   RANSAC zemin ayırma
@@ -332,4 +358,4 @@ lidar_algilama/
         └── takip.*              #   nesne takibi
 ```
 
-Mesajlar (`Nesne`, `NesneDizisi`) ortak [`robotaksi_msgs`](../../ortak/robotaksi_msgs/) paketindedir.
+Mesajlar (`EngelDurumu`, `Nesne`, `NesneDizisi`) ortak [`robotaksi_msgs`](../../ortak/robotaksi_msgs/) paketindedir.

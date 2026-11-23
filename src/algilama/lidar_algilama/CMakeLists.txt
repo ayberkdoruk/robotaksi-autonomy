@@ -35,6 +35,7 @@ ament_target_dependencies(engel_node
   visualization_msgs
   rcl_interfaces
   geometry_msgs
+  robotaksi_msgs
 )
 
 # nesne_node: zemin ayırma + kümeleme + kutu + etiket + takip

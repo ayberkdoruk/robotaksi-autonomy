@@ -15,21 +15,22 @@ import threading
 import time
 
 import rclpy
-from geometry_msgs.msg import PointStamped
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter_client import AsyncParameterClient
 from rclpy.qos import qos_profile_sensor_data
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import Float32, String
 
 from .ayar_tanim import ENGEL, NESNE
 
 try:
-    from robotaksi_msgs.msg import NesneDizisi
-except ImportError:  # mesaj paketi derlenmemişse nesne tablosu boş kalır
-    NesneDizisi = None
+    from robotaksi_msgs.msg import EngelDurumu, NesneDizisi
+    DURUM_ADLARI = {EngelDurumu.GUVENLI: "GUVENLI", EngelDurumu.DIKKAT: "DIKKAT",
+                    EngelDurumu.DUR: "DUR"}
+except ImportError:  # mesaj paketi derlenmemişse durum ve nesne tablosu boş kalır
+    EngelDurumu = NesneDizisi = None
+    DURUM_ADLARI = {}
 
 OYNATICI = "/rosbag2_player"
 
@@ -110,9 +111,8 @@ class RosBaglanti:
         self.nesne_sayac = HizSayaci()
         self.lidar_sayac = HizSayaci()
 
-        n.create_subscription(String, "/engel/karar", self._karar, 10)
-        n.create_subscription(Float32, "/engel/mesafe", self._mesafe, 10)
-        n.create_subscription(PointStamped, "/engel/engel_noktasi", self._nokta, 10)
+        if EngelDurumu is not None:
+            n.create_subscription(EngelDurumu, "/engel/durum", self._durum, 10)
         if NesneDizisi is not None:
             n.create_subscription(NesneDizisi, "/nesne/liste", self._nesneler, 10)
         # raw=True: mesaj Python nesnesine çevrilmez (1.5 MB x 10 Hz), sadece sayılır
@@ -148,15 +148,14 @@ class RosBaglanti:
         rclpy.try_shutdown()
 
     # ---------------- geri çağrılar ----------------
-    def _karar(self, msg):
-        self.karar = msg.data
+    def _durum(self, msg):
+        # Arayüzün geri kalanı durumu "DUR" / "DIKKAT" / "GUVENLI" adıyla, engel yoksa
+        # mesafeyi -1 olarak kullanır; çeviri sadece burada.
+        self.karar = DURUM_ADLARI.get(msg.durum, str(msg.durum))
+        self.mesafe = float(msg.mesafe) if msg.engel_var else -1.0
+        if msg.engel_var:
+            self.engel_noktasi, self.nokta_zamani = msg.engel_noktasi, time.monotonic()
         self.karar_sayac.isaretle()
-
-    def _mesafe(self, msg):
-        self.mesafe = msg.data
-
-    def _nokta(self, msg):
-        self.engel_noktasi, self.nokta_zamani = msg.point, time.monotonic()
 
     def _nesneler(self, msg):
         self.nesneler, self.nesne_zamani = list(msg.nesneler), time.monotonic()

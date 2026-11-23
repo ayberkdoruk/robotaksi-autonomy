@@ -58,7 +58,7 @@ katmana ne konacağını anlatan kısa bir README var.
 | [`ortak/`](src/ortak/) | Herkesin kullandığı mesajlar ve ortam | [`robotaksi_msgs`](src/ortak/robotaksi_msgs/) (ortak mesajlar), [`robotaksi_baslat`](src/ortak/robotaksi_baslat/) (ortak ROS ortamı, Fast DDS ayarı) |
 | [`surucular/`](src/surucular/) | Sensör sürücüleri | `rslidar_sdk`, `rslidar_msg` (dış depo) + [`yamalar/`](src/surucular/yamalar/) |
 | [`arac/`](src/arac/) | Araca komut katmanı (Teensy ile haberleşme) | henüz yok |
-| [`algilama/`](src/algilama/) | Sensör verisinden çevreyi anlama | [`lidar_algilama`](src/algilama/lidar_algilama/README.md) — LiDAR ile engel kararı ve nesne algılama |
+| [`algilama/`](src/algilama/) | Sensör verisinden çevreyi anlama | [`lidar_algilama`](src/algilama/lidar_algilama/README.md) — LiDAR ile engel durumu ve nesne algılama |
 | [`surus/`](src/surus/) | Sürüş yöntemleri (her yöntem ayrı paket) | henüz yok |
 | [`araclar/`](src/araclar/) | Geliştirme araçları | [`kontrol_merkezi`](src/araclar/kontrol_merkezi/README.md) — tek pencereli arayüz, ayar paneli, kayıt/oynat |
 
@@ -103,13 +103,27 @@ cd ~/robotaksi_ws
 ### 2) Dış depoları (sürücüleri) çekin ve yamaları uygulayın
 
 Sürücüler bu depoya dahil değildir. [`robotaksi.repos`](robotaksi.repos) hangi depoların hangi
-sürümle çekileceğini listeler:
+sürümle çekileceğini listeler. Çekme ve yama işini tek betik yapar:
+
+```bash
+scripts/dis_depolari_cek.sh
+```
+
+Betiği tekrar çalıştırmak güvenlidir. `robotaksi.repos`'taki sabit sürüm değiştiğinde de aynı betiği
+bir kez daha çalıştırın: yamayı geri alır, depoyu yeni sürüme getirir, yamayı yeniden uygular.
+
+<details>
+<summary>Betiğin yaptığı (elle yapmak isterseniz)</summary>
 
 ```bash
 vcs import src < robotaksi.repos
 git -C src/surucular/rslidar_sdk submodule update --init
 git -C src/surucular/rslidar_sdk apply ../yamalar/rslidar_sdk_helios.patch
 ```
+
+> Son satır **sadece bir kez** çalışır; ikinci kez çalıştırılırsa yama zaten uygulandığı için hata verir.
+
+</details>
 
 Yama, sürücüyü Helios 32'ye ayarlar (`lidar_type: RSHELIOS`, `POINT_TYPE XYZIRT`).
 Başka bir RoboSense modeli için `src/surucular/rslidar_sdk/config/config.yaml` içindeki `lidar_type`'ı değiştirin.
@@ -137,6 +151,10 @@ export ROS_DOMAIN_ID=42                         # ağdaki diğer ROS bilgisayarl
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST  # sadece bu bilgisayar
 export FASTRTPS_DEFAULT_PROFILES_FILE=~/robotaksi_ws/install/robotaksi_baslat/share/robotaksi_baslat/config/fastdds_buyuk_mesaj.xml
 ```
+
+> `LOCALHOST`, okul / atölye ağındaki başka ROS bilgisayarlarıyla karışmayı önler. Pistte araçtaki
+> bilgisayara başka bir laptoptan (ör. RViz ile) bağlanmak isterseniz **iki bilgisayarda da** bu değeri
+> `SUBNET` yapın ve `ROS_DOMAIN_ID`'nin aynı olduğundan emin olun.
 
 Masaüstü kısayollarıyla açılan betikler bu ayarları [`ros_ortami.sh`](src/ortak/robotaksi_baslat/scripts/ros_ortami.sh)
 üzerinden kendileri verir.
@@ -193,14 +211,27 @@ Sadece algılama düğümleri: [`lidar_algilama`](src/algilama/lidar_algilama/RE
    ros2 pkg create --build-type ament_cmake lidar_surus --dependencies rclcpp robotaksi_msgs
    ```
 
-2. Sensörlerden ve algılama paketlerinden istediğiniz topic'leri okuyun (ör. `/rslidar_points`,
-   `/engel/karar`, `/nesne/liste`).
+2. Sensörlerden ve algılama paketlerinden istediğiniz topic'leri okuyun (aşağıdaki tablo).
 3. Araca komutu `arac/` katmanının dinleyeceği ortak komut topic'ine yazın (mesajı `robotaksi_msgs`
    içinde tanımlanınca).
 4. `ortak/`, `surucular/`, `arac/` paketlerinde değişiklik gerekiyorsa ekiple konuşun — bunlar herkesin
    yöntemini etkiler.
 
 Ayrıntılı kurallar: [`src/surus/README.md`](src/surus/README.md).
+
+### Ortak topic'ler
+
+Sürüş yöntemlerinin okuyabileceği / yazacağı topic'ler. Ayrıntılı alanlar mesaj dosyalarında.
+
+| Topic | Mesaj tipi | Yayınlayan | Açıklama |
+|---|---|---|---|
+| `/rslidar_points` | `sensor_msgs/PointCloud2` | `rslidar_sdk` | Ham LiDAR bulutu, frame `rslidar`, ~10 Hz, SensorData QoS |
+| `/engel/durum` | [`robotaksi_msgs/EngelDurumu`](src/ortak/robotaksi_msgs/msg/EngelDurumu.msg) | `engel_node` | Yelpazedeki en yakın engelin bölgesi (`GUVENLI` / `DIKKAT` / `DUR`), mesafesi ve konumu. **Sürüş komutu değildir**, ne yapılacağına yönteminiz karar verir |
+| `/nesne/liste` | [`robotaksi_msgs/NesneDizisi`](src/ortak/robotaksi_msgs/msg/NesneDizisi.msg) | `nesne_node` | Takip edilen nesneler: kutu, mesafe, etiket, hız, çarpışma süresi |
+| *(araç komutu)* | *henüz tanımlanmadı* | sürüş yöntemi | `arac/` katmanının dinleyeceği ortak komut |
+
+Konumlar sensörün kendi frame'indedir: **x = ileri, y = sol, z = yukarı**, birim metre; mesajlardaki
+açılar radyandır.
 
 ---
 
@@ -209,10 +240,12 @@ Ayrıntılı kurallar: [`src/surus/README.md`](src/surus/README.md).
 ```
 robotaksi_ws/
 ├── robotaksi.repos                  # dışarıdan çekilen depolar (sürücüler), sabit sürümle
+├── scripts/
+│   └── dis_depolari_cek.sh          # dış depoları çeker + yamaları uygular (tekrar çalıştırılabilir)
 ├── docs/images/                     # README görselleri
 └── src/
     ├── ortak/
-    │   ├── robotaksi_msgs/          # ortak mesajlar (Nesne, NesneDizisi)
+    │   ├── robotaksi_msgs/          # ortak mesajlar (EngelDurumu, Nesne, NesneDizisi)
     │   └── robotaksi_baslat/        # ros_ortami.sh, Fast DDS ayarı
     ├── surucular/
     │   ├── yamalar/                 # dış sürücülere uyguladığımız yamalar
