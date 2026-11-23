@@ -25,6 +25,6 @@ engel_node:
     # --- Gelişmiş (panelde yok) ---
     canli_izleme: true       # true: her turda karar + mesafe terminale yazılır
 
-# NOT: Panelde "uygulanan" son ayarlar ~/.ros/engel_algilama/son_ayarlar.yaml
+# NOT: Panelde "uygulanan" son ayarlar ~/.ros/kontrol_merkezi/son_ayarlar.yaml
 # dosyasına otomatik kaydedilir ve açılışta bu dosyanın ÜSTÜNE yüklenir.
 # Bu dosyadaki değerler sadece hiç kayıt yoksa (ilk açılışta) kullanılır.
