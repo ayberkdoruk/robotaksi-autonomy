@@ -26,6 +26,6 @@ if surucu_calisiyor_mu; then
     exit 1
 fi
 
-ros2 launch engel_algilama sistem.launch.py
+ros2 launch kontrol_merkezi lidar_sistem.launch.py
 
 bekle "Sistem kapandi. Pencereyi kapatmak icin Enter'a basin..."

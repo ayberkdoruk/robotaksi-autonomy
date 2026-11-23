@@ -1,9 +1,10 @@
-"""Tüm sistemi tek komutla başlatır: LiDAR sürücüsü + RViz + engel_node + ayar paneli.
+"""LiDAR sistemini tek komutla başlatır: LiDAR sürücüsü + RViz + engel_node + nesne_node + ayar paneli.
 
-  ros2 launch engel_algilama sistem.launch.py                 # canlı LiDAR
-  ros2 launch engel_algilama sistem.launch.py surucu:=false   # rosbag oynatırken
+  ros2 launch kontrol_merkezi lidar_sistem.launch.py                 # canlı LiDAR
+  ros2 launch kontrol_merkezi lidar_sistem.launch.py surucu:=false   # rosbag oynatırken
+  ros2 launch kontrol_merkezi lidar_sistem.launch.py panel:=false    # ayar paneli olmadan
 
-Masaüstündeki "Engel Algılama" kısayolu da bunu çalıştırır.
+Masaüstündeki "Engel Algılama" kısayolu (engel_sistemi_baslat.sh) da bunu çalıştırır.
 
 NOT: LiDAR sürücüsü, rslidar_sdk'nın kendi start.py dosyasındakiyle AYNI şekilde
 başlatılır (kendi config.yaml dosyasını kullanır). Sürücünün hiçbir ayarı
@@ -22,12 +23,16 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    paket = get_package_share_directory('engel_algilama')
+    paket = get_package_share_directory('kontrol_merkezi')
+    algilama = get_package_share_directory('lidar_algilama')
 
     # Kayıt (rosbag) oynatırken sürücü açılmamalı: ikisi aynı topic'e yayın yapar
     surucu_arg = DeclareLaunchArgument(
         'surucu', default_value='true',
         description='LiDAR surucusunu ac (rosbag oynatirken false)')
+
+    panel_arg = DeclareLaunchArgument(
+        'panel', default_value='true', description='Ayar panelini de ac (true/false)')
 
     # 1) LiDAR sürücüsü — rslidar_sdk/launch/start.py ile birebir aynı ayarlar
     surucu = Node(
@@ -44,11 +49,20 @@ def generate_launch_description():
         package='rviz2',
         executable='rviz2',
         name='rviz2',
-        arguments=['-d', os.path.join(paket, 'rviz', 'engel.rviz')],
+        arguments=['-d', os.path.join(paket, 'rviz', 'lidar.rviz')],
     )
 
-    # 3) engel_node + ayar paneli
-    engel = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(paket, 'launch', 'engel.launch.py')))
+    # 3) engel_node + nesne_node (lidar_algilama paketinden)
+    dugumler = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(algilama, 'launch', 'lidar_algilama.launch.py')))
 
-    return LaunchDescription([surucu_arg, surucu, rviz, engel])
+    # 4) Ayar paneli
+    ayar_paneli = Node(
+        package='kontrol_merkezi',
+        executable='ayar_paneli',
+        name='ayar_paneli',
+        parameters=[{'hedef_node': 'engel_node'}],
+        condition=IfCondition(LaunchConfiguration('panel')),
+    )
+
+    return LaunchDescription([surucu_arg, panel_arg, surucu, rviz, dugumler, ayar_paneli])

@@ -1,14 +1,14 @@
 """
 engel_node ve nesne_node ayarlarının tanımları, ayar dosyaları ve arayüzün kendi ayarları.
 
-Kayıt dosyaları (~/.ros/engel_algilama/):
+Kayıt dosyaları (~/.ros/kontrol_merkezi/):
   son_ayarlar.yaml : panelde en son UYGULANAN ayarlar. Her değişiklikte otomatik
-                     yazılır; launch dosyası ve LiDAR Kontrol Merkezi node'ları
+                     yazılır; launch dosyası ve Kontrol Merkezi node'ları
                      açarken bunu varsayılanların üstüne yükler.
   profiller/*.yaml : "Kaydet…" ile isim verilerek saklanan ayarlar (ör. masa, arac)
-  arayuz.yaml      : LiDAR Kontrol Merkezi'nin kendi ayarları (tema, kayıt klasörü…)
+  arayuz.yaml      : Kontrol Merkezi'nin kendi ayarları (tema, kayıt klasörü…)
 Ayar dosyaları ROS parametre dosyası biçimindedir, yani
-  ros2 run engel_algilama engel_node --ros-args --params-file DOSYA.yaml
+  ros2 run lidar_algilama engel_node --ros-args --params-file DOSYA.yaml
 ile de doğrudan kullanılabilir.
 
 Alt/üst sınırlar engel_node.cpp ve nesne_node.cpp'deki aralıklarla AYNI olmalı.
@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 import yaml
 
-KAYIT_KOKU = os.path.expanduser("~/.ros/engel_algilama")
+KAYIT_KOKU = os.path.expanduser("~/.ros/kontrol_merkezi")
 SON_AYARLAR = os.path.join(KAYIT_KOKU, "son_ayarlar.yaml")
 PROFIL_KLASORU = os.path.join(KAYIT_KOKU, "profiller")
 ARAYUZ_AYARLARI = os.path.join(KAYIT_KOKU, "arayuz.yaml")
@@ -217,7 +217,7 @@ GOVDE = ("govde_x_min", "govde_x_max", "govde_y_min", "govde_y_max")
 def _paket_paylasim():
     try:
         from ament_index_python.packages import get_package_share_directory
-        return get_package_share_directory("engel_algilama")
+        return get_package_share_directory("lidar_algilama")  # varsayılan parametre dosyaları
     except Exception:  # paket kurulu değil / ROS ortamı yok
         return None
 
@@ -269,7 +269,7 @@ def dosya_yaz(yol, degerler):
                 icerik[node]["ros__parameters"][a.ros_adi] = a.ros_degeri(degerler[a.anahtar])
     gecici = yol + ".tmp"
     with open(gecici, "w", encoding="utf-8") as f:
-        f.write("# engel_algilama ayar dosyasi (LiDAR Kontrol Merkezi / ayar paneli tarafindan yazildi)\n")
+        f.write("# lidar_algilama ayar dosyasi (Kontrol Merkezi / ayar paneli tarafindan yazildi)\n")
         yaml.safe_dump(icerik, f, allow_unicode=True, sort_keys=False)
     os.replace(gecici, yol)  # yarım yazılmış dosya kalmasın diye önce geçiciye yaz
 
@@ -375,10 +375,10 @@ def ayarlar_ayni_mi(a, b):
 
 
 # -----------------------------------------------------------------------------
-# LiDAR Kontrol Merkezi'nin kendi ayarları
+# Kontrol Merkezi'nin kendi ayarları
 # -----------------------------------------------------------------------------
 GENEL_VARSAYILAN = {
-    "kayit_klasoru": "~/lidar_kayitlar",
+    "kayit_klasoru": "~/robotaksi_kayitlar",
     "rviz_otomatik": True,      # bölüme girince RViz de açılsın
     "yan_yana": True,           # RViz'i arayüzün yanına yerleştir (ekranı ikiye böl)
     "nesne_acik": True,         # nesne_node (kutular) varsayılan olarak açık
@@ -422,7 +422,7 @@ class GenelAyarlar:
             os.makedirs(KAYIT_KOKU, exist_ok=True)
             gecici = ARAYUZ_AYARLARI + ".tmp"
             with open(gecici, "w", encoding="utf-8") as f:
-                f.write("# LiDAR Kontrol Merkezi ayarlari\n")
+                f.write("# Kontrol Merkezi ayarlari\n")
                 yaml.safe_dump(self.d, f, allow_unicode=True, sort_keys=False)
             os.replace(gecici, ARAYUZ_AYARLARI)
         except OSError:

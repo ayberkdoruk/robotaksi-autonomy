@@ -1,9 +1,9 @@
 #!/bin/bash
 # =============================================================================
-# LiDAR Kontrol Merkezi'ni açar. Masaüstündeki "LiDAR Kontrol" simgesi bunu
+# Robotaksi Kontrol Merkezi'ni açar. Masaüstündeki "Kontrol Merkezi" simgesi bunu
 # çalıştırır; terminal penceresi açılmaz.
 #
-# Programın kendi çıktısı ~/.ros/engel_algilama/lidar_kontrol.log dosyasına yazılır.
+# Programın kendi çıktısı ~/.ros/kontrol_merkezi/kontrol_merkezi.log dosyasına yazılır.
 # Program açılırken hata verirse son satırlar bir pencerede gösterilir.
 # =============================================================================
 
@@ -13,16 +13,16 @@ k="$(dirname "$(readlink -f "$0")")"
 while [ "$k" != / ] && [ ! -f "$k/install/setup.bash" ]; do k="$(dirname "$k")"; done
 source "$k/install/robotaksi_baslat/share/robotaksi_baslat/scripts/ros_ortami.sh"
 
-GUNLUK="$HOME/.ros/engel_algilama/lidar_kontrol.log"
+GUNLUK="$HOME/.ros/kontrol_merkezi/kontrol_merkezi.log"
 mkdir -p "$(dirname "$GUNLUK")"
 
-ros2 run engel_algilama lidar_kontrol "$@" > "$GUNLUK" 2>&1
+ros2 run kontrol_merkezi kontrol_merkezi "$@" > "$GUNLUK" 2>&1
 kod=$?
 
 if [ $kod -ne 0 ] && [ -n "$DISPLAY" ] && command -v zenity > /dev/null; then
     son=$(tail -n 15 "$GUNLUK" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
-    zenity --error --title="LiDAR Kontrol" --width=640 \
-        --text="LiDAR Kontrol beklenmedik şekilde kapandı (çıkış kodu $kod).\n\nSon satırlar:\n\n<tt>$son</tt>\n\nTamamı: $GUNLUK" \
+    zenity --error --title="Kontrol Merkezi" --width=640 \
+        --text="Kontrol Merkezi beklenmedik şekilde kapandı (çıkış kodu $kod).\n\nSon satırlar:\n\n<tt>$son</tt>\n\nTamamı: $GUNLUK" \
         2> /dev/null
 fi
 exit $kod

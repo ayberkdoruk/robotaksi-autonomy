@@ -110,7 +110,7 @@ class AnaEkran(QWidget):
         simge.setPixmap(ikonlar.uygulama_ikonu().pixmap(46, 46))
         baslik = QVBoxLayout()
         baslik.setSpacing(0)
-        baslik.addWidget(etiket("LiDAR Kontrol Merkezi", "baslik"))
+        baslik.addWidget(etiket("Robotaksi Kontrol Merkezi", "baslik"))
         model = self.surucu.get("model_adi", "LiDAR")
         baslik.addWidget(etiket(f"RoboSense {model} · engel ve nesne algılama", "soluk"))
         self.tema_dugmesi = arac_dugmesi("ay", "Koyu / açık tema", self.app.tema_degistir, boyut=18)
@@ -215,7 +215,7 @@ class AnaEkran(QWidget):
         eksik = komutlar.eksik_paketler()
         if eksik:
             self.bant.goster("hata", "Bazı programlar kurulu değil: <b>" + ", ".join(eksik) + "</b>. "
-                             "Çalışma alanını derleyin: <code>cd ~/lidar_ws && colcon build --symlink-install</code>")
+                             "Çalışma alanını derleyin: <code>cd ~/robotaksi_ws && colcon build --symlink-install</code>")
         elif self._dis:
             liste = ", ".join(f"<b>{ad}</b> (pid {pid})" for pid, ad, _ in self._dis)
             self.bant.goster("uyari", f"Başka bir yerden (eski kısayol ya da terminal) açılmış programlar "
@@ -294,28 +294,28 @@ class AnaEkran(QWidget):
 # Genel ayarlar
 # -----------------------------------------------------------------------------
 def kisayol_olustur():
-    """Masaüstüne ve uygulama menüsüne 'LiDAR Kontrol' kısayolu koyar. (mesaj, başarılı)"""
-    program = komutlar.paket_programi("engel_algilama", "lidar_kontrol_baslat.sh")
+    """Masaüstüne ve uygulama menüsüne 'Kontrol Merkezi' kısayolu koyar. (mesaj, başarılı)"""
+    program = komutlar.paket_programi("kontrol_merkezi", "kontrol_merkezi_baslat.sh")
     if not program:
-        return "lidar_kontrol_baslat.sh bulunamadı (paket derlendi mi?).", False
+        return "kontrol_merkezi_baslat.sh bulunamadı (paket derlendi mi?).", False
     try:
         from ament_index_python.packages import get_package_share_directory
-        simge = os.path.join(get_package_share_directory("engel_algilama"), "resource", "engel_algilama.svg")
+        simge = os.path.join(get_package_share_directory("kontrol_merkezi"), "resource", "kontrol_merkezi.svg")
     except Exception:
         simge = "utilities-terminal"
-    icerik = ("[Desktop Entry]\nType=Application\nVersion=1.0\nName=LiDAR Kontrol\n"
+    icerik = ("[Desktop Entry]\nType=Application\nVersion=1.0\nName=Kontrol Merkezi\n"
               "Comment=LiDAR sürücüsü, engel algılama, kayıt alma ve oynatma: hepsi tek pencerede\n"
               f"Exec={program}\nIcon={simge}\nTerminal=false\nCategories=Science;\n"
-              "StartupWMClass=lidar_kontrol\n")
+              "StartupWMClass=kontrol_merkezi\n")
     try:
         masaustu = subprocess.run(["xdg-user-dir", "DESKTOP"], capture_output=True, text=True,
                                   timeout=3).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         masaustu = ""
     masaustu = masaustu or os.path.expanduser("~/Desktop")
-    hedefler = [os.path.expanduser("~/.local/share/applications/lidar-kontrol.desktop")]
+    hedefler = [os.path.expanduser("~/.local/share/applications/kontrol-merkezi.desktop")]
     if os.path.isdir(masaustu):
-        hedefler.append(os.path.join(masaustu, "lidar-kontrol.desktop"))
+        hedefler.append(os.path.join(masaustu, "kontrol-merkezi.desktop"))
     yazilan = []
     for yol in hedefler:
         try:
@@ -338,7 +338,7 @@ class GenelAyarlarPenceresi(QDialog):
         super().__init__(app)
         self.app = app
         g = app.genel
-        self.setWindowTitle("LiDAR Kontrol — Ayarlar")
+        self.setWindowTitle("Kontrol Merkezi — Ayarlar")
         self.setMinimumWidth(560)
 
         self.klasor = QLineEdit(g["kayit_klasoru"])
@@ -369,7 +369,7 @@ class GenelAyarlarPenceresi(QDialog):
                                             if g["sikistirma"] in dict(SIKISTIRMALAR) else 0))
 
         kisayol = dugme("Masaüstü kısayolunu oluştur", "ev",
-                        ipucu="Masaüstüne ve uygulama menüsüne 'LiDAR Kontrol' simgesi koyar",
+                        ipucu="Masaüstüne ve uygulama menüsüne 'Kontrol Merkezi' simgesi koyar",
                         tiklaninca=self._kisayol)
         self.kisayol_sonucu = etiket("", "silik", kaydir=True)
         ayar_klasoru = dugme("Ayar dosyalarının klasörünü aç", "klasor",
@@ -414,7 +414,7 @@ class GenelAyarlarPenceresi(QDialog):
     def _kaydet(self):
         yeni_tema = "koyu" if self.koyu.isChecked() else "acik"
         self.app.genel.guncelle(
-            kayit_klasoru=self.klasor.text().strip() or "~/lidar_kayitlar",
+            kayit_klasoru=self.klasor.text().strip() or "~/robotaksi_kayitlar",
             rviz_otomatik=self.rviz.isChecked(), yan_yana=self.yan_yana.isChecked(),
             nesne_acik=self.nesne.isChecked(), sikistirma=self.sikistirma.currentData())
         if yeni_tema != tema.aktif_ad:

@@ -28,14 +28,13 @@ DAKIKADA_GB = {"zstd_fast": 0.55, "fastwrite": 0.9}
 
 def surucu_ayar_dosyasi():
     """rslidar_sdk'nın kullandığı config.yaml (sürücü kaynak klasöründekini okur)."""
-    adaylar = [os.path.expanduser("~/lidar_ws/src/rslidar_sdk/config/config.yaml")]
+    adaylar = []
     try:
         from ament_index_python.packages import get_package_prefix, get_package_share_directory
         adaylar.append(os.path.join(get_package_share_directory("rslidar_sdk"), "config", "config.yaml"))
-        # colcon --symlink-install: kaynak klasör, kurulum klasörünün yanındaki src/ altında
-        onek = get_package_prefix("rslidar_sdk")
-        adaylar.append(os.path.join(os.path.dirname(os.path.dirname(onek)), "src", "rslidar_sdk",
-                                    "config", "config.yaml"))
+        # Sürücü kaynağı çalışma alanında src/surucular/ altında; kök = <kök>/install/rslidar_sdk'nın iki üstü
+        kok = os.path.dirname(os.path.dirname(get_package_prefix("rslidar_sdk")))
+        adaylar.append(os.path.join(kok, "src", "surucular", "rslidar_sdk", "config", "config.yaml"))
     except Exception:
         pass
     for yol in adaylar:

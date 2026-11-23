@@ -85,7 +85,7 @@ def bulut_boyutu(veri):
 
 
 class RosBaglanti:
-    def __init__(self, node_adi="lidar_kontrol", args=None, engel_hedef=None, nesne_hedef=None):
+    def __init__(self, node_adi="kontrol_merkezi", args=None, engel_hedef=None, nesne_hedef=None):
         if not rclpy.ok():
             # Ctrl+C'yi rclpy değil pencere karşılasın: önce arka plandaki programlar düzgün
             # kapatılsın (kayıt dosyası yarım kalmasın), sonra ROS bağlantısı.
@@ -134,7 +134,7 @@ class RosBaglanti:
                 self.yurutucu.spin_once(timeout_sec=0.05)
             except Exception as e:  # kapanırken gelen hatalar
                 if self._calisiyor and rclpy.ok():
-                    print(f"[lidar_kontrol] ROS döngüsünde hata: {e}", flush=True)
+                    print(f"[kontrol_merkezi] ROS döngüsünde hata: {e}", flush=True)
                     time.sleep(0.1)
 
     def kapat(self):

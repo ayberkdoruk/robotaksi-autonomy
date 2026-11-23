@@ -1,7 +1,7 @@
 """
-Tek başına çalışan engel ayar paneli (engel.launch.py ve sistem.launch.py açar).
+Tek başına çalışan engel ayar paneli (kontrol_merkezi lidar_sistem.launch.py açar).
 
-LiDAR Kontrol Merkezi'ndeki Engel Algılama sayfasının aynı parçası: canlı karar,
+Kontrol Merkezi'ndeki Engel Algılama sayfasının aynı parçası: canlı karar,
 yukarıdan bakış çizimi, nesne tablosu ve tüm ayarlar. Program başlatıp kapatmaz;
 launch dosyasının açtığı node'lara bağlanır.
 """
@@ -45,7 +45,7 @@ def main():
     sys.excepthook = hata_yakalayici
     uygulama = QApplication(remove_ros_args(sys.argv))
     uygulama.setApplicationName("Engel Ayar Paneli")
-    ros = RosBaglanti("engel_ayar_paneli", args=sys.argv)  # hedef_node / nesne_node parametreleri okunur
+    ros = RosBaglanti("ayar_paneli", args=sys.argv)  # hedef_node / nesne_node parametreleri okunur
     try:
         pencere = PanelPenceresi(ros)
         pencere.show()

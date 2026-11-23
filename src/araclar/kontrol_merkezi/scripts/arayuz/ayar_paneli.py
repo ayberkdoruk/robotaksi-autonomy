@@ -3,7 +3,7 @@ Ayar paneli: engel_node ve nesne_node'un çalışırken değişebilen TÜM ayarl
 sekmelere ayrılmış halde, ve kayıtlı ayar profilleri.
 
 - Çubuk oynatılınca / değer yazılınca 150 ms sonra node'a gönderilir (anında uygulanır).
-- Node kabul ederse ~/.ros/engel_algilama/son_ayarlar.yaml'a otomatik yazılır; node'lar
+- Node kabul ederse ~/.ros/kontrol_merkezi/son_ayarlar.yaml'a otomatik yazılır; node'lar
   bir sonraki açılışta bu değerlerle başlar.
 - Node kapalıysa onun sekmeleri kilitli kalır; node açılınca değerleri ondan okunur.
 """

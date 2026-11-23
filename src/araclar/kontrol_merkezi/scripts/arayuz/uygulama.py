@@ -1,5 +1,5 @@
 """
-LiDAR Kontrol Merkezi: ana pencere.
+Robotaksi Kontrol Merkezi: ana pencere.
 
 Tek pencere, hiç terminal yok. Ana ekrandan bir bölüm seçilince o bölümün gerektirdiği
 programlar (LiDAR sürücüsü, engel_node, nesne_node, RViz, kayıt oynatıcı) arkada açılır.
@@ -41,7 +41,7 @@ class AnaPencere(QMainWindow):
         self.ros = ros
         self.genel = GenelAyarlar()
         tema.uygula(QApplication.instance(), self.genel["tema"])
-        self.setWindowTitle("LiDAR Kontrol Merkezi")
+        self.setWindowTitle("Robotaksi Kontrol Merkezi")
         self.setWindowIcon(ikonlar.uygulama_ikonu())
 
         self.yonetici = SurecYonetici(self)
@@ -238,13 +238,13 @@ class AnaPencere(QMainWindow):
         self._bekleyen = {}
         self.yonetici.hepsini_durdur()
         self.setEnabled(False)
-        self.setWindowTitle("LiDAR Kontrol Merkezi — programlar kapatılıyor…")
+        self.setWindowTitle("Robotaksi Kontrol Merkezi — programlar kapatılıyor…")
 
 
 def hata_yakalayici(tur, deger, iz):
     """PyQt5, zamanlayıcı/düğme içindeki yakalanmamış hatada programı kapatır. Bunun yerine
     hatayı günlüğe yaz ve devam et (arka plandaki programlar sahipsiz kalmasın)."""
-    print("[lidar_kontrol] Beklenmedik hata:", flush=True)
+    print("[kontrol_merkezi] Beklenmedik hata:", flush=True)
     traceback.print_exception(tur, deger, iz)
     sys.stdout.flush()
 
@@ -252,9 +252,9 @@ def hata_yakalayici(tur, deger, iz):
 def main():
     sys.excepthook = hata_yakalayici
     uygulama = QApplication(remove_ros_args(sys.argv))
-    uygulama.setApplicationName("LiDAR Kontrol Merkezi")
-    uygulama.setDesktopFileName("lidar-kontrol")
-    ros = RosBaglanti("lidar_kontrol", args=sys.argv, engel_hedef="engel_node", nesne_hedef="nesne_node")
+    uygulama.setApplicationName("Robotaksi Kontrol Merkezi")
+    uygulama.setDesktopFileName("kontrol-merkezi")
+    ros = RosBaglanti("kontrol_merkezi", args=sys.argv, engel_hedef="engel_node", nesne_hedef="nesne_node")
     try:
         pencere = AnaPencere(ros)
         pencere.show()

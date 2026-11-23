@@ -46,7 +46,7 @@ TEMALAR = {"koyu": KOYU, "acik": ACIK}
 _aktif = dict(KOYU)
 aktif_ad = "koyu"
 
-ONBELLEK = os.path.expanduser("~/.cache/lidar_kontrol")
+ONBELLEK = os.path.expanduser("~/.cache/kontrol_merkezi")
 
 
 def renk(ad, alfa=None):

@@ -8,7 +8,7 @@
 #   lidar_kayit.sh oda_yurume 60      -> 60 saniye kaydedip kendisi durur
 #   SIKISTIRMA=yok lidar_kayit.sh ... -> sıkıştırmasız (bilgisayar kasarsa)
 #
-# Kayıtlar ~/lidar_kayitlar/ klasörüne "TARIH_SAAT_isim" adıyla gider.
+# Kayıtlar ~/robotaksi_kayitlar/ klasörüne "TARIH_SAAT_isim" adıyla gider.
 # Önce LiDAR sürücüsü açık olmalı (masaüstündeki "Engel Algılama" simgesi).
 # =============================================================================
 

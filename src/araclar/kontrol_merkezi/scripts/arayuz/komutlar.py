@@ -4,7 +4,7 @@ Arka plandaki programların komut satırları.
 Programlar 'ros2 run' yerine doğrudan çalıştırılır (araya fazladan süreç girmesin,
 kapatma sinyali doğrudan programa gitsin). Ayarlar launch dosyalarıyla AYNI:
   - sürücü: rslidar_sdk/launch/start.py gibi, kendi config.yaml'ı ile
-  - engel_node / nesne_node: config/*.yaml + ~/.ros/engel_algilama/son_ayarlar.yaml
+  - engel_node / nesne_node: config/*.yaml + ~/.ros/kontrol_merkezi/son_ayarlar.yaml
 """
 
 import copy
@@ -30,8 +30,8 @@ def eksik_paketler():
     """Kurulu olmayan programlar (ör. sürücü derlenmemiş): [açıklama, ...]"""
     eksik = []
     for paket, program, ad in (("rslidar_sdk", "rslidar_sdk_node", "LiDAR sürücüsü (rslidar_sdk)"),
-                               ("engel_algilama", "engel_node", "engel_node"),
-                               ("engel_algilama", "nesne_node", "nesne_node"),
+                               ("lidar_algilama", "engel_node", "engel_node"),
+                               ("lidar_algilama", "nesne_node", "nesne_node"),
                                ("rviz2", "rviz2", "RViz")):
         if paket_programi(paket, program) is None:
             eksik.append(ad)
@@ -55,11 +55,11 @@ def surucu():
 
 
 def engel_node():
-    return [paket_programi("engel_algilama", "engel_node"), "--ros-args"] + _params("engel_node")
+    return [paket_programi("lidar_algilama", "engel_node"), "--ros-args"] + _params("engel_node")
 
 
 def nesne_node():
-    return [paket_programi("engel_algilama", "nesne_node"), "--ros-args"] + _params("nesne_node")
+    return [paket_programi("lidar_algilama", "nesne_node"), "--ros-args"] + _params("nesne_node")
 
 
 def oynatici(kayit_yolu, hiz=1.0, dongu=True, baslangic_s=0.0):
@@ -85,7 +85,7 @@ def rviz(tur="tam", geometri=None):
 
 
 def rviz_ayar_dosyasi(tur, geometri=None):
-    kaynak = os.path.join(get_package_share_directory("engel_algilama"), "rviz", "engel.rviz")
+    kaynak = os.path.join(get_package_share_directory("kontrol_merkezi"), "rviz", "lidar.rviz")
     if tur == "tam" and geometri is None:
         return kaynak
     try:

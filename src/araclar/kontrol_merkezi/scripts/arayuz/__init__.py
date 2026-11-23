@@ -1,4 +1,4 @@
-"""LiDAR Kontrol Merkezi ve engel ayar paneli için ortak arayüz paketi.
+"""Robotaksi Kontrol Merkezi ve engel ayar paneli için ortak arayüz paketi.
 
 Modüller:
   tema         renkler ve Qt stil sayfası (koyu / açık)
@@ -14,6 +14,6 @@ Modüller:
   algilama     karar kutusu, yukarıdan bakış çizimi, nesne tablosu
   ana_ekran    açılış ekranı
   bolumler     Engel Algılama / LiDAR'ı İzle / Kayıt Al / Kayıt Oynat sayfaları
-  uygulama     LiDAR Kontrol Merkezi ana penceresi
-  panel        tek başına çalışan engel ayar paneli (engel.launch.py açar)
+  uygulama     Kontrol Merkezi ana penceresi
+  panel        tek başına çalışan engel ayar paneli (lidar_sistem.launch.py açar)
 """

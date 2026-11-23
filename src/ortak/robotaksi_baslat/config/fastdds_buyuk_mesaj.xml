@@ -3,7 +3,7 @@
   LiDAR nokta bulutu gibi büyük mesajlar (~1.5 MB) için Fast DDS ayarı.
   Varsayılan paylaşımlı bellek (SHM) segmenti 512 KB olduğu için büyük mesajlar
   UDP parçalarına bölünüp kayboluyordu. Burada segmenti 16 MB yapıyoruz.
-  Kullanım: export FASTRTPS_DEFAULT_PROFILES_FILE=~/lidar_ws/fastdds_buyuk_mesaj.xml
+  Kullanım: ros_ortami.sh bunu kendisi verir. Elle: export FASTRTPS_DEFAULT_PROFILES_FILE=~/robotaksi_ws/install/robotaksi_baslat/share/robotaksi_baslat/config/fastdds_buyuk_mesaj.xml
 -->
 <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
   <transport_descriptors>

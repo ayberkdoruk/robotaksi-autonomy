@@ -226,13 +226,14 @@ DIS_DESENLER = {
     "surucu": ("LiDAR sürücüsü", "rslidar_sdk_node",
                lambda arg: os.path.basename(arg[0]) == "rslidar_sdk_node"),
     "engel": ("engel_node", "engel_node",
-              lambda arg: arg[0].endswith("engel_algilama/engel_node")),
+              lambda arg: arg[0].endswith("lidar_algilama/engel_node")),
     "nesne": ("nesne_node", "nesne_node",
-              lambda arg: arg[0].endswith("engel_algilama/nesne_node")),
+              lambda arg: arg[0].endswith("lidar_algilama/nesne_node")),
     "oynatici": ("kayıt oynatıcı (ros2 bag play)", "bag play",
                  lambda arg: _ros2_alt_komut(arg, "bag", "play")),
-    "launch": ("ros2 launch engel_algilama", "launch engel_algilama",
-               lambda arg: _ros2_alt_komut(arg, "launch", "engel_algilama")),
+    "launch": ("ros2 launch (lidar_algilama / kontrol_merkezi)", "launch (lidar_algilama|kontrol_merkezi)",
+               lambda arg: (_ros2_alt_komut(arg, "launch", "lidar_algilama")
+                            or _ros2_alt_komut(arg, "launch", "kontrol_merkezi"))),
 }
 
 

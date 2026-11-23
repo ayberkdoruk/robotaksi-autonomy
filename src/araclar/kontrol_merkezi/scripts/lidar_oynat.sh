@@ -5,8 +5,8 @@
 #
 # Kullanım:
 #   lidar_oynat.sh                       -> kayıt seçme penceresi açılır
-#   lidar_oynat.sh ~/lidar_kayitlar/XXX  -> o kaydı oynatır
-#   lidar_oynat.sh ~/lidar_kayitlar/XXX 0.5  -> yarı hızda oynatır
+#   lidar_oynat.sh ~/robotaksi_kayitlar/XXX  -> o kaydı oynatır
+#   lidar_oynat.sh ~/robotaksi_kayitlar/XXX 0.5  -> yarı hızda oynatır
 #
 # Kayıt sonsuz döngüde oynar. Durdurmak için bu terminalde Ctrl+C.
 # =============================================================================
@@ -47,7 +47,7 @@ fi
 if [ ! -f "$kayit/metadata.yaml" ]; then
     echo
     echo "HATA: '$kayit' gecerli bir rosbag kaydi degil (icinde metadata.yaml yok)."
-    echo "~/lidar_kayitlar/ icindeki TARIH_SAAT_isim klasorlerinden birini secin."
+    echo "~/robotaksi_kayitlar/ icindeki TARIH_SAAT_isim klasorlerinden birini secin."
     bekle
     exit 1
 fi
@@ -62,7 +62,7 @@ echo "DURDURMAK ICIN: Ctrl+C"
 echo
 
 # --- 3) RViz + engel_node + panel (sürücü olmadan) ---
-ros2 launch engel_algilama sistem.launch.py surucu:=false &
+ros2 launch kontrol_merkezi lidar_sistem.launch.py surucu:=false &
 ekran_pid=$!
 
 temizle() {

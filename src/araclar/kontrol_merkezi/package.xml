@@ -1,44 +1,37 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <!-- Paketin adı: colcon ve ros2 komutlarında bu isimle çağrılır -->
-  <name>engel_algilama</name>
+  <name>kontrol_merkezi</name>
   <version>0.1.0</version>
-  <description>RoboSense Helios 32 nokta bulutundan sektör tabanlı engel algılama (DUR / DIKKAT / GUVENLI) ve nesne algılama (kutu, mesafe, etiket, takip)</description>
+  <description>Robotaksi Kontrol Merkezi: LiDAR sürücüsü, engel algılama, kayıt alma ve oynatma tek pencerede; Türkçe ayar paneli ve kayıt/oynat betikleri</description>
   <maintainer email="ayberk@todo.todo">ayberk</maintainer>
   <license>Apache-2.0</license>
 
-  <!-- Derleme sistemi: C++ paketleri için ament_cmake -->
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- Kodun kullandığı ROS 2 paketleri (hem derlemede hem çalışırken gerekli) -->
-  <depend>rclcpp</depend>
-  <depend>sensor_msgs</depend>
-  <depend>std_msgs</depend>
-  <depend>visualization_msgs</depend>
-  <depend>rcl_interfaces</depend>
-  <depend>geometry_msgs</depend>
+  <!-- Ortak ortam (ros_ortami.sh) ve yönetilen algılama düğümleri -->
+  <exec_depend>robotaksi_baslat</exec_depend>
+  <exec_depend>robotaksi_msgs</exec_depend>
+  <exec_depend>lidar_algilama</exec_depend>
 
-  <!-- nesne_node için: nokta bulutu işleme (PCL) ve kendi mesajlarımız -->
-  <depend>libpcl-all-dev</depend>
-  <depend>pcl_conversions</depend>
-  <depend>robotaksi_msgs</depend>
-
-  <!-- Ayar paneli ve LiDAR Kontrol Merkezi (Python + Qt) için -->
+  <!-- Arayüz (Python + Qt) -->
   <exec_depend>rclpy</exec_depend>
   <exec_depend>python_qt_binding</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rosgraph_msgs</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
   <!-- Kayıt alma / oynatma (ros2 bag, MCAP) ve oynatıcı denetimi (duraklat, hız, atla) -->
   <exec_depend>ros2bag</exec_depend>
   <exec_depend>rosbag2_storage_mcap</exec_depend>
   <exec_depend>rosbag2_interfaces</exec_depend>
 
-  <!-- sistem.launch.py için: LiDAR sürücüsü ve RViz -->
+  <!-- lidar_sistem.launch.py ve LiDAR'ı İzle için: sürücü ve RViz -->
   <exec_depend>rslidar_sdk</exec_depend>
   <exec_depend>rviz2</exec_depend>
 
-  <!-- Sadece çalışma anında gerekli: launch dosyası için -->
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
