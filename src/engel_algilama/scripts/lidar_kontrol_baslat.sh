@@ -7,7 +7,11 @@
 # Program açılırken hata verirse son satırlar bir pencerede gösterilir.
 # =============================================================================
 
-source "$(dirname "$(readlink -f "$0")")/ros_ortami.sh"
+# Ortak ROS ortamı (robotaksi_baslat paketinde). Çalışma alanı kökü: bu betikten yukarı
+# çıkıp install/setup.bash bulunan ilk klasör (çalışma alanının yeri sabit değil).
+k="$(dirname "$(readlink -f "$0")")"
+while [ "$k" != / ] && [ ! -f "$k/install/setup.bash" ]; do k="$(dirname "$k")"; done
+source "$k/install/robotaksi_baslat/share/robotaksi_baslat/scripts/ros_ortami.sh"
 
 GUNLUK="$HOME/.ros/engel_algilama/lidar_kontrol.log"
 mkdir -p "$(dirname "$GUNLUK")"

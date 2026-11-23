@@ -7,7 +7,11 @@
 # çalıştırır. Kapatmak için: o terminalde Ctrl+C veya terminal penceresini kapatın.
 # =============================================================================
 
-source "$(dirname "$(readlink -f "$0")")/ros_ortami.sh"
+# Ortak ROS ortamı (robotaksi_baslat paketinde). Çalışma alanı kökü: bu betikten yukarı
+# çıkıp install/setup.bash bulunan ilk klasör (çalışma alanının yeri sabit değil).
+k="$(dirname "$(readlink -f "$0")")"
+while [ "$k" != / ] && [ ! -f "$k/install/setup.bash" ]; do k="$(dirname "$k")"; done
+source "$k/install/robotaksi_baslat/share/robotaksi_baslat/scripts/ros_ortami.sh"
 
 echo "=============================================="
 echo "   ENGEL ALGILAMA SISTEMI BASLATILIYOR"

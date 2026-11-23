@@ -27,7 +27,7 @@ from std_msgs.msg import Float32, String
 from .ayar_tanim import ENGEL, NESNE
 
 try:
-    from engel_algilama_msgs.msg import NesneDizisi
+    from robotaksi_msgs.msg import NesneDizisi
 except ImportError:  # mesaj paketi derlenmemişse nesne tablosu boş kalır
     NesneDizisi = None
 

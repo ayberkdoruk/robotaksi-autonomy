@@ -3,7 +3,7 @@
 //
 // LiDAR nokta bulutundan (/rslidar_points) nesneleri bulur:
 //   zemin ayırma -> kümeleme -> dönük kutu + mesafe -> kaba etiket -> takip
-// ve sonuçları /nesne/liste (engel_algilama_msgs/NesneDizisi) ile RViz'e yayınlar.
+// ve sonuçları /nesne/liste (robotaksi_msgs/NesneDizisi) ile RViz'e yayınlar.
 //
 // engel_node'dan (DUR / DIKKAT / GUVENLI) tamamen bağımsızdır, onun yanında çalışır.
 // Sadece engel_node'un uyarı yelpazesi ayarlarını OKUR (hangi nesne yelpazenin
@@ -36,8 +36,8 @@
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
-#include "engel_algilama_msgs/msg/nesne.hpp"
-#include "engel_algilama_msgs/msg/nesne_dizisi.hpp"
+#include "robotaksi_msgs/msg/nesne.hpp"
+#include "robotaksi_msgs/msg/nesne_dizisi.hpp"
 
 #include "nesne/kumeleme.hpp"
 #include "nesne/kutu.hpp"
@@ -267,7 +267,7 @@ public:
     param_callback_handle_ = add_on_set_parameters_callback(
       std::bind(&NesneNode::parametreDegisti, this, std::placeholders::_1));
 
-    liste_pub_ = create_publisher<engel_algilama_msgs::msg::NesneDizisi>("/nesne/liste", 10);
+    liste_pub_ = create_publisher<robotaksi_msgs::msg::NesneDizisi>("/nesne/liste", 10);
     gorsel_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/nesne/gorsel", 10);
     kume_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("/nesne/kumeler", 10);
     zemin_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("/nesne/zemin", 10);
@@ -555,7 +555,7 @@ private:
       std::chrono::steady_clock::now() - baslangic).count();
     if (a.canli_izleme) {
       int yaya = 0;
-      const engel_algilama_msgs::msg::Nesne * en_yakin = nullptr;
+      const robotaksi_msgs::msg::Nesne * en_yakin = nullptr;
       for (const auto & n : liste.nesneler) {
         if (n.etiket == nesne::ETIKET_YAYA) {++yaya;}
         if (!en_yakin || n.mesafe < en_yakin->mesafe) {en_yakin = &n;}
@@ -578,15 +578,15 @@ private:
   // ---------------------------------------------------------------------------
   // /nesne/liste mesajı
   // ---------------------------------------------------------------------------
-  engel_algilama_msgs::msg::NesneDizisi listeOlustur(
+  robotaksi_msgs::msg::NesneDizisi listeOlustur(
     const std_msgs::msg::Header & header, const std::vector<nesne::Takipci::Iz> & izler) const
   {
-    engel_algilama_msgs::msg::NesneDizisi dizi;
+    robotaksi_msgs::msg::NesneDizisi dizi;
     dizi.header = header;
     dizi.nesneler.reserve(izler.size());
     for (const auto & iz : izler) {
       const auto & k = iz.kutu;
-      engel_algilama_msgs::msg::Nesne n;
+      robotaksi_msgs::msg::Nesne n;
       n.id = iz.id;
       n.etiket = iz.etiket;
       n.merkez.x = k.cx;
@@ -719,7 +719,7 @@ private:
   }
 
   visualization_msgs::msg::MarkerArray gorselOlustur(
-    const std_msgs::msg::Header & header, const engel_algilama_msgs::msg::NesneDizisi & liste,
+    const std_msgs::msg::Header & header, const robotaksi_msgs::msg::NesneDizisi & liste,
     const Ayarlar & a)
   {
     using visualization_msgs::msg::Marker;
@@ -858,7 +858,7 @@ private:
   rclcpp::TimerBase::SharedPtr yelpaze_zamanlayici_;
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr nokta_sub_;
-  rclcpp::Publisher<engel_algilama_msgs::msg::NesneDizisi>::SharedPtr liste_pub_;
+  rclcpp::Publisher<robotaksi_msgs::msg::NesneDizisi>::SharedPtr liste_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr gorsel_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr kume_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr zemin_pub_;

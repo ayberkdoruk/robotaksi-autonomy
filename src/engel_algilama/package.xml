@@ -22,7 +22,7 @@
   <!-- nesne_node için: nokta bulutu işleme (PCL) ve kendi mesajlarımız -->
   <depend>libpcl-all-dev</depend>
   <depend>pcl_conversions</depend>
-  <depend>engel_algilama_msgs</depend>
+  <depend>robotaksi_msgs</depend>
 
   <!-- Ayar paneli ve LiDAR Kontrol Merkezi (Python + Qt) için -->
   <exec_depend>rclpy</exec_depend>

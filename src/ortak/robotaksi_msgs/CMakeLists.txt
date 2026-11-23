@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.8)
-project(engel_algilama_msgs)
+project(robotaksi_msgs)
 
-# Sadece mesaj tanımları. Ayrı paket olmasının sebebi: ileride yazılacak
-# füzyon node'u (C++ veya Python) node kodunu çekmeden bu mesajları kullanabilsin.
+# Ekibin ortak mesaj tanımları. Ayrı paket olmasının sebebi: her sürüş yöntemi ve araç katmanı
+# başka hiçbir paketin kodunu çekmeden bu mesajları kullanabilsin.
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)

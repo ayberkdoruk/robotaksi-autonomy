@@ -22,7 +22,7 @@ find_package(geometry_msgs REQUIRED)
 # NOT: PCL derlenirken "CMP0144 / FLANN_ROOT" uyarısı verir; PCL'in kendi dosyasından gelir, zararsızdır.
 find_package(PCL REQUIRED COMPONENTS common filters kdtree search sample_consensus segmentation)
 find_package(pcl_conversions REQUIRED)
-find_package(engel_algilama_msgs REQUIRED)
+find_package(robotaksi_msgs REQUIRED)
 
 # engel_node adında çalıştırılabilir dosya oluştur
 add_executable(engel_node src/engel_node.cpp)
@@ -62,7 +62,7 @@ ament_target_dependencies(nesne_node
   rcl_interfaces
   geometry_msgs
   pcl_conversions
-  engel_algilama_msgs
+  robotaksi_msgs
 )
 
 # Çalıştırılabilir dosyayı "ros2 run" bulabilsin diye lib/<paket_adı> altına kur
@@ -83,9 +83,6 @@ install(PROGRAMS scripts/lidar_kontrol.py
   RENAME lidar_kontrol
 )
 install(PROGRAMS scripts/lidar_kontrol_baslat.sh
-  DESTINATION lib/${PROJECT_NAME}
-)
-install(FILES scripts/ros_ortami.sh
   DESTINATION lib/${PROJECT_NAME}
 )
 install(DIRECTORY scripts/lidar_arayuz
