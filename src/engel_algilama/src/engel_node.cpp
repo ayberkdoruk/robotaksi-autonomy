@@ -15,7 +15,9 @@
 #include <cmath>       // std::sqrt, std::cos, std::sin, std::isfinite, std::ceil
 #include <cstdio>      // std::snprintf
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
@@ -189,6 +191,35 @@ public:
     RCLCPP_INFO(get_logger(), "engel_node basladi, /rslidar_points dinleniyor.");
   }
 
+  // Node kapanırken (Ctrl+C / SIGTERM) RViz'deki yelpazeyi, yazıları ve filtrelenmiş
+  // bulutu siler. RViz marker'ları silme mesajı gelene, bulutu da yenisi gelene kadar
+  // ekranda tutar; bu olmazsa kapanan node'un son görüntüsü ekranda donup kalır.
+  // ROS kapanmadan hemen önce, sinyal iş parçacığından çağrılır (main'e bakın).
+  void ekraniTemizle()
+  {
+    // İşlenmekte olan tur bitsin, sonra yeni tur başlamasın: yoksa o tur silinen
+    // çizimleri geri getirebilir.
+    std::lock_guard<std::mutex> kilit(kapanis_mutex_);
+    kapaniyor_ = true;
+    if (son_bulut_sablonu_.header.frame_id.empty()) {
+      return;  // hiç bulut gelmedi, ekranda bizden bir şey yok
+    }
+
+    visualization_msgs::msg::MarkerArray sil_dizi;
+    visualization_msgs::msg::Marker sil;
+    sil.header = son_bulut_sablonu_.header;
+    sil.action = visualization_msgs::msg::Marker::DELETEALL;
+    sil_dizi.markers.push_back(sil);
+    gorsel_pub_->publish(sil_dizi);
+
+    // Boş bulut, normal bulutla aynı alanlarla (RViz renk ayarı bozulmasın)
+    nokta_pub_->publish(filtrelenmisBulutOlustur(son_bulut_sablonu_, {}, 0));
+
+    // Süreç hemen kapanacak; mesajlar RViz'e ulaşmadan yok olmasın
+    gorsel_pub_->wait_for_all_acked(std::chrono::milliseconds(300));
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  }
+
 private:
   // ---------------------------------------------------------------------------
   // Parametre tanımlama
@@ -298,6 +329,16 @@ private:
   // ---------------------------------------------------------------------------
   void noktaBulutuGeldi(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg)
   {
+    std::lock_guard<std::mutex> kilit(kapanis_mutex_);
+    if (kapaniyor_) {
+      return;
+    }
+    // Kapanışta boş bulut gönderebilmek için alanları sakla (veri kopyalanmaz)
+    son_bulut_sablonu_.header = msg->header;
+    son_bulut_sablonu_.fields = msg->fields;
+    son_bulut_sablonu_.is_bigendian = msg->is_bigendian;
+    son_bulut_sablonu_.point_step = msg->point_step;
+
     const Ayarlar a = ayarlar_;            // Bu tur boyunca sabit kalsın
     const Sektor s = sektorHazirla(a);     // cos/sin'i bir kez hesapla
 
@@ -593,6 +634,11 @@ private:
   std::vector<EngelNoktasi> adaylar_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr engel_noktasi_pub_;
 
+  // Kapanışta ekranı temizlemek için (ekraniTemizle)
+  std::mutex kapanis_mutex_;
+  bool kapaniyor_ = false;
+  sensor_msgs::msg::PointCloud2 son_bulut_sablonu_;  // son bulutun başlığı + alanları, verisiz
+
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr nokta_sub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr karar_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr mesafe_pub_;
@@ -604,7 +650,15 @@ private:
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<EngelNode>());
+  auto node = std::make_shared<EngelNode>();
+  // Ctrl+C / SIGTERM gelince rclcpp bunu ROS kapanmadan HEMEN ÖNCE çağırır (o an yayın
+  // hâlâ mümkün): RViz'de son yelpaze/bulut asılı kalmasın.
+  std::weak_ptr<EngelNode> zayif = node;
+  rclcpp::contexts::get_global_default_context()->add_pre_shutdown_callback(
+    [zayif]() {
+      if (auto n = zayif.lock()) {n->ekraniTemizle();}
+    });
+  rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;
 }

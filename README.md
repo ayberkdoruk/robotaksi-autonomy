@@ -33,6 +33,7 @@ Her kutunun üstünde takip numarası, etiket ve mesafe yazar.</sub>
 - [Gereksinimler](#-gereksinimler)
 - [Kurulum](#-kurulum)
 - [LiDAR bağlantısı](#-lidar-bağlantısı)
+- [LiDAR Kontrol Merkezi (önerilen)](#️-lidar-kontrol-merkezi)
 - [Çalıştırma](#-çalıştırma)
 - [Kayıt alma ve oynatma (rosbag)](#-kayıt-alma-ve-oynatma-rosbag)
 - [Ayar paneli](#-ayar-paneli)
@@ -51,7 +52,7 @@ Bu depo iki ROS 2 paketinden oluşur:
 
 | Paket | İçerik |
 |---|---|
-| **`engel_algilama`** | `engel_node` (C++), `nesne_node` (C++ + PCL), `engel_ayar_paneli` (Python + Qt), launch dosyaları, RViz ekranı, kayıt/oynatma betikleri |
+| **`engel_algilama`** | `engel_node` (C++), `nesne_node` (C++ + PCL), `lidar_kontrol` ve `engel_ayar_paneli` (Python + Qt), launch dosyaları, RViz ekranı, kayıt/oynatma betikleri |
 | **`engel_algilama_msgs`** | `Nesne` ve `NesneDizisi` mesaj tanımları |
 
 **`engel_node` — sektör tabanlı engel kararı**
@@ -69,6 +70,12 @@ Bu depo iki ROS 2 paketinden oluşur:
 - Kutunun şekline göre kaba etiket verir: **yaya adayı**, **yapı** (duvar vb.), **engel**.
 - Nesneleri kareden kareye **takip eder**: numara, hız, yaklaşma hızı ve çarpışma süresi.
 - Sonuçları `/nesne/liste` topic'inde yayınlar — başka node'lar (ör. kamera füzyonu) doğrudan okuyabilir.
+
+**`lidar_kontrol` — LiDAR Kontrol Merkezi**
+- Araçta terminal açmadan her şey tek pencereden: ana ekrandan **Engel Algılama**, **LiDAR'ı İzle**,
+  **Kayıt Al** veya **Kayıt Oynat** seçilir, gereken programlar arkada kendiliğinden açılır.
+- Programların durumu ve terminal çıktıları pencerenin altında; çöken program tek tıkla yeniden başlatılır.
+- Kayıt oynatırken duraklatma, tur tur ilerletme, ileri/geri atlama ve hız ayarı.
 
 **`engel_ayar_paneli` — Türkçe ayar paneli**
 - Canlı karar ve yukarıdan bakış çizimi: yelpaze şu an tam olarak nereye bakıyor, kararı hangi nokta verdi.
@@ -272,6 +279,47 @@ Saniyede ~10 mesaj görüyorsanız bağlantı tamamdır.
 
 ---
 
+## 🖥️ LiDAR Kontrol Merkezi
+
+Araca oturan kişinin terminal açıp komut yazmadan her şeyi tek pencereden yönetmesi için.
+
+```bash
+ros2 run engel_algilama lidar_kontrol
+```
+
+Masaüstü simgesi için programda **Ayarlar → Masaüstü kısayolunu oluştur**'a basın; masaüstüne ve
+uygulama menüsüne **LiDAR Kontrol** simgesi gelir (terminal penceresi açmadan çalışır).
+
+**Ana ekran** LiDAR'dan kablo üzerinden paket gelip gelmediğini (sürücüyü açmadan), diskte kaç saatlik
+kayda yer kaldığını, son kullanılan ayar profilini ve kayıtları gösterir. Dört bölümden birine tıklayın:
+
+| Bölüm | Arkada açılanlar | Neler yapılır |
+|---|---|---|
+| 🚧 **Engel Algılama** | LiDAR sürücüsü, `engel_node`, `nesne_node`, RViz | Canlı karar, yukarıdan bakış çizimi (nesne kutuları, gövde kutusu), canlı nesne tablosu, çalışırken değişen **tüm** ayarlar, profiller, sayfadan çıkmadan kayıt |
+| 📡 **LiDAR'ı İzle** | LiDAR sürücüsü, RViz (sadece ham bulut) | Saniyedeki tur, tur başına nokta, kopan turlar, sürücü ayarları (sadece gösterilir), kayıt |
+| ⏺ **Kayıt Al** | LiDAR sürücüsü (+ istenirse RViz) | İsim, süre, sıkıştırma; geçen süre / boyut / tur; kayıt listesi: oynat, adını değiştir, çöp kutusuna at |
+| ▶ **Kayıt Oynat** | Kayıt oynatıcı, `engel_node`, `nesne_node`, RViz | Duraklat / devam, tek tur ilerlet, ilerleme çubuğuyla atla, hız 0.1×–2×, döngü; Engel Algılama'daki ayar paneli |
+
+- **Sadece fark açılır/kapanır.** LiDAR'ı İzle'den Engel Algılama'ya geçerken sürücü açık kalır. Ayarı
+  değişen program (RViz aç/kapat, nesne algılama aç/kapat, oynatıcının döngü ayarı, başka kayıt seçmek)
+  kendiliğinden yeniden başlatılır; pencere hiç kapanmaz.
+- **⌂ Ana ekran** o bölümün açtığı her şeyi kapatır. Pencere kapatılınca programlar düzgünce (Ctrl+C ile)
+  kapatılır, kayıt dosyası yarım kalmaz. Arayüz çökse bile açtığı programlar da kapanır.
+- Kayıt sürerken sürücünün açık kaldığı bölümler (İzle ↔ Engel Algılama ↔ Kayıt Al) arasında geçilebilir.
+- Her programın terminal çıktısı alttaki **Program çıktıları** bölümündedir. Bir program çökerse sayfanın
+  üstünde kırmızı bant ve **Yeniden başlat** düğmesi çıkar.
+- Eski kısayollardan ya da bir terminalden açılmış sürücü / node / oynatıcı varsa uyarır ve kapatmayı önerir
+  (iki sürücü aynı LiDAR portunu kullanamaz, kayıt ile canlı veri karışır).
+- LiDAR sürücüsünün ayarları (`rslidar_sdk/config/config.yaml`) **değiştirilmez**, sadece gösterilir.
+- **⚙ Ayarlar:** kayıt klasörü, bölüme girince RViz açılsın mı, RViz bu pencerenin yanına yerleşsin mi
+  (ekranı ikiye böler), nesne algılama varsayılanı, koyu / açık tema, varsayılan sıkıştırma, masaüstü
+  kısayolu. Dosyası: `~/.ros/engel_algilama/arayuz.yaml`.
+
+> Simgeden açılınca programın kendi çıktısı `~/.ros/engel_algilama/lidar_kontrol.log` dosyasına yazılır;
+> açılırken hata verirse son satırlar bir pencerede gösterilir.
+
+---
+
 ## 🚀 Çalıştırma
 
 ### Her şey tek komutla (LiDAR sürücüsü + RViz + node'lar + panel)
@@ -319,6 +367,9 @@ ros2 run engel_algilama engel_ayar_paneli
 ```
 
 ### Masaüstü kısayolları (isteğe bağlı)
+
+> Önerilen yol tek simgeli [LiDAR Kontrol Merkezi](#️-lidar-kontrol-merkezi)'dir. Aşağıdaki betikler
+> terminalden kullanmak isteyenler için duruyor.
 
 `scripts/` altındaki betikler masaüstü simgesinden çift tıkla açılmak için hazırlandı
 (`~/.bashrc`'yi okumadıkları için ROS ortamını [`ros_ortami.sh`](src/engel_algilama/scripts/ros_ortami.sh) üzerinden kurarlar):
@@ -381,15 +432,22 @@ Panel `rqt_reconfigure` yerine, ne değiştirdiğinizi görerek ayar yapmanız i
 
 - **Sol taraf:** büyük renkli karar kutusu (DUR / DİKKAT / GÜVENLİ + mesafe), kararı veren noktanın
   açısı/mesafesi/yüksekliği ve yukarıdan bakış çizimi. Dış çember ölçeği altta yazar.
-- **Sağ taraf:** 5 grup halinde ayarlar — *Nereye bakılsın?*, *Hangi noktalar yok sayılsın?*,
-  *Ne zaman uyarı verilsin?*, *Gürültü filtresi*, *Kutulama alanı*.
+- **Çizim:** uyarı yelpazesi (sarı / kırmızı), kutulama alanı (mavi kesik çizgi), gövde kutusu (taralı)
+  ve `nesne_node`'un bulduğu nesne kutuları. Fare tekerleğiyle yakınlaştırılır, çift tıkla eski ölçeğe döner.
+- **Nesne tablosu:** takip numarası, etiket, mesafe, yön, hız, yaklaşma hızı, çarpışma süresi.
+- **Sağ taraf:** iki node'un çalışırken değişebilen **tüm** ayarları 7 sekmede — *Uyarı alanı*, *Filtreler*,
+  *Kutulama alanı*, *Zemin*, *Kümeleme*, *Etiket*, *Takip*. Her ayarda kaydırma çubuğu, klavyeyle yazılabilen
+  değer kutusu, açıklama ve varsayılana döndürme düğmesi var. Birbiriyle çelişen değerler (ör. DUR ≥ DİKKAT)
+  kırmızı gösterilir ve düzeltilene kadar gönderilmez.
 - **Kayıtlı ayarlar:**
   - Uyguladığınız her değişiklik `~/.ros/engel_algilama/son_ayarlar.yaml` dosyasına **otomatik**
     kaydedilir ve launch dosyası açılışta bunu varsayılanların üstüne yükler.
   - **Kaydet…** ile isimli profil oluşturun (`~/.ros/engel_algilama/profiller/`), **Yükle** ile geri getirin.
   - **Dışa aktar / İçe aktar** ile ayarları başka bilgisayara taşıyın.
   - Kayıt dosyaları ROS parametre dosyası biçimindedir, `--params-file` ile doğrudan da kullanılabilir.
-- `nesne_node` kapalıysa *Kutulama alanı* çubukları kilitli kalır.
+- Bir node kapalıysa onun sekmeleri kilitli kalır ve son kaydedilen değerleri gösterir; o sırada yüklenen
+  profilin değerleri node açılınca uygulanır.
+- Aynı panel LiDAR Kontrol Merkezi'nin Engel Algılama ve Kayıt Oynat bölümlerinde de var.
 
 ---
 
@@ -555,6 +613,8 @@ Panelde **Kaydet…** ile `masa` ve `arac` diye iki profil oluşturup ortam değ
 | Ondalıklı parametrede "tip uyuşmuyor" | YAML'da `90` yerine `90.0` yazın |
 | Başka bilgisayarın ROS verisi karışıyor | `ROS_DOMAIN_ID` ve `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` |
 | Kayıt oynatınca veri karışık | Canlı sürücü açık kalmış — ikisi aynı topic'e yayın yapar. Sürücüyü kapatın |
+| LiDAR Kontrol simgeden açılmıyor | `~/.ros/engel_algilama/lidar_kontrol.log` dosyasına bakın; paket derlenmemiş olabilir |
+| LiDAR Kontrol "başka yerden açılmış programlar" diyor | Eski kısayolla ya da terminalden açılmış sürücü / node açık. Uyarıdaki **Hepsini kapat**'a basın |
 | PCL derlenirken `CMP0144 / FLANN_ROOT` uyarısı | PCL'in kendi CMake dosyasından gelir, zararsızdır |
 
 ---
@@ -576,7 +636,10 @@ lidar_ws/
     │   ├── rviz/engel.rviz          # hazır RViz ekranı
     │   ├── resource/                # uygulama simgesi
     │   ├── scripts/
-    │   │   ├── engel_ayar_paneli.py # Qt ayar paneli
+    │   │   ├── lidar_kontrol.py     # LiDAR Kontrol Merkezi (tek pencere)
+    │   │   ├── lidar_kontrol_baslat.sh  # masaüstü simgesi bunu açar
+    │   │   ├── engel_ayar_paneli.py # tek başına ayar paneli (launch dosyaları açar)
+    │   │   ├── lidar_arayuz/        # iki arayüzün ortak Python paketi (sayfalar, süreç yönetimi, ayarlar)
     │   │   ├── engel_sistemi_baslat.sh
     │   │   ├── lidar_kayit.sh
     │   │   ├── lidar_oynat.sh

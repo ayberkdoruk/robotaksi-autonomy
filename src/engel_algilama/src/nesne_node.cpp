@@ -18,7 +18,9 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <pcl/filters/voxel_grid.h>
@@ -280,6 +282,38 @@ public:
     RCLCPP_INFO(get_logger(), "nesne_node basladi, /rslidar_points dinleniyor.");
   }
 
+  // Node kapanırken (Ctrl+C / SIGTERM) RViz'deki son kutuları ve bulutları siler.
+  // RViz marker'ları silme mesajı gelene, bulutları da yenisi gelene kadar ekranda tutar;
+  // bu olmazsa kapanan node'un son görüntüsü ekranda donup kalır.
+  // ROS kapanmadan hemen önce, sinyal iş parçacığından çağrılır (main'e bakın).
+  void ekraniTemizle()
+  {
+    // İşlenmekte olan tur bitsin, sonra yeni tur başlamasın: yoksa o tur silinen
+    // çizimleri geri getirebilir.
+    std::lock_guard<std::mutex> kilit(kapanis_mutex_);
+    kapaniyor_ = true;
+    if (son_header_.frame_id.empty()) {
+      return;  // hiç bulut gelmedi, ekranda bizden bir şey yok
+    }
+
+    visualization_msgs::msg::MarkerArray sil_dizi;
+    visualization_msgs::msg::Marker sil;
+    sil.header = son_header_;
+    sil.action = visualization_msgs::msg::Marker::DELETEALL;
+    sil_dizi.markers.push_back(sil);
+    gorsel_pub_->publish(sil_dizi);
+
+    // Boş bulutlar, normal bulutlarla aynı alanlarla (RViz renk ayarı bozulmasın)
+    const nesne::Bulut bos;
+    zemin_pub_->publish(bulutMesaji(bos, son_header_));
+    zemin_disi_pub_->publish(bulutMesaji(bos, son_header_));
+    kume_pub_->publish(kumeBulutu(bos, {}, son_header_));
+
+    // Süreç hemen kapanacak; mesajlar RViz'e ulaşmadan yok olmasın
+    gorsel_pub_->wait_for_all_acked(std::chrono::milliseconds(300));
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  }
+
 private:
   // ---------------------------------------------------------------------------
   // Parametreler
@@ -413,6 +447,12 @@ private:
   // ---------------------------------------------------------------------------
   void noktaBulutuGeldi(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg)
   {
+    std::lock_guard<std::mutex> kilit(kapanis_mutex_);
+    if (kapaniyor_) {
+      return;
+    }
+    son_header_ = msg->header;
+
     const auto baslangic = std::chrono::steady_clock::now();
     const Ayarlar a = ayarlar_;
 
@@ -805,6 +845,11 @@ private:
   nesne::Takipci takipci_;
   bool zemin_uyarisi_verildi_ = false;
 
+  // Kapanışta ekranı temizlemek için (ekraniTemizle)
+  std::mutex kapanis_mutex_;
+  bool kapaniyor_ = false;
+  std_msgs::msg::Header son_header_;  // son gelen bulutun frame'i ve zamanı
+
   std::string yelpaze_node_;
   Yelpaze yelpaze_;
   bool yelpaze_istek_bekliyor_ = false;
@@ -824,7 +869,15 @@ private:
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<NesneNode>());
+  auto node = std::make_shared<NesneNode>();
+  // Ctrl+C / SIGTERM gelince rclcpp bunu ROS kapanmadan HEMEN ÖNCE çağırır (o an yayın
+  // hâlâ mümkün): RViz'de son kutular/bulutlar asılı kalmasın.
+  std::weak_ptr<NesneNode> zayif = node;
+  rclcpp::contexts::get_global_default_context()->add_pre_shutdown_callback(
+    [zayif]() {
+      if (auto n = zayif.lock()) {n->ekraniTemizle();}
+    });
+  rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;
 }
