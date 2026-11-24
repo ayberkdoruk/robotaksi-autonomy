@@ -12,6 +12,10 @@ Yönettiği algılama düğümleri [`lidar_algilama`](../../algilama/lidar_algil
 
 Araca oturan kişinin terminal açıp komut yazmadan her şeyi tek pencereden yönetmesi için.
 
+<p align="center">
+  <img src="../../../docs/images/kontrol_merkezi.png" alt="Kontrol Merkezi ana ekranı" width="100%">
+</p>
+
 ```bash
 ros2 run kontrol_merkezi kontrol_merkezi
 ```

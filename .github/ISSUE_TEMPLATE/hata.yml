@@ -1,0 +1,30 @@
+name: Hata bildirimi
+description: Bir şey beklendiği gibi çalışmıyor
+labels: [hata]
+body:
+  - type: textarea
+    id: ne
+    attributes:
+      label: Ne oldu?
+      description: Gördüğünüz davranış ve beklediğiniz davranış.
+    validations:
+      required: true
+  - type: textarea
+    id: nasil
+    attributes:
+      label: Nasıl tekrarlanır?
+      description: Hangi bölüm / komut, hangi kayıt ya da canlı LiDAR, hangi ayar profili.
+    validations:
+      required: true
+  - type: dropdown
+    id: paket
+    attributes:
+      label: Paket
+      options: [lidar_algilama, kontrol_merkezi, robotaksi_msgs, robotaksi_baslat, sürücüler, diğer]
+    validations:
+      required: true
+  - type: textarea
+    id: cikti
+    attributes:
+      label: Terminal çıktısı / ekran görüntüsü
+      render: shell

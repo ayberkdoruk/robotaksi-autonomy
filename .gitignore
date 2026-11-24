@@ -10,3 +10,11 @@ src/surucular/rslidar_msg/
 # Editör ayarları
 .vscode/
 __pycache__/
+
+# Yerel araç/not klasörleri
+.superpowers/
+docs/superpowers/
+
+# LiDAR kayıtları depoya girmez (büyük dosyalar)
+*.mcap
+*.db3

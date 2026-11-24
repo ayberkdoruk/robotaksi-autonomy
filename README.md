@@ -1,23 +1,114 @@
 <div align="center">
 
-# 🚕 Robotaksi Çalışma Alanı (ROS 2)
+<img src="src/araclar/kontrol_merkezi/resource/kontrol_merkezi.svg" alt="Robotaksi" width="84">
 
-Robotaksi otonom araç yarışması için aracın **tüm yazılımı**: sensör sürücüleri, algılama,
-sürüş yöntemleri, araca komut katmanı ve geliştirme araçları — tek bir colcon çalışma alanında.
+# Robotaksi Autonomy
 
+**Robotaksi otonom araç yarışması için ROS 2 yazılım yığını**
+
+LiDAR ile gerçek zamanlı engel ve hareketli nesne algılama · terminalsiz Kontrol Merkezi ·
+yarışan sürüş yöntemleri için katmanlı çalışma alanı
+
+[![Build](https://github.com/ayberkdoruk/robotaksi-autonomy/actions/workflows/build.yml/badge.svg)](https://github.com/ayberkdoruk/robotaksi-autonomy/actions/workflows/build.yml)
 ![ROS 2 Jazzy](https://img.shields.io/badge/ROS%202-Jazzy-22314E?logo=ros&logoColor=white)
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3-3776AB?logo=python&logoColor=white)
+![PCL](https://img.shields.io/badge/PCL-1.14-4CAF50)
 ![Ubuntu 24.04](https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white)
-![Lisans](https://img.shields.io/badge/lisans-Apache--2.0-blue)
+[![Lisans](https://img.shields.io/badge/lisans-Apache--2.0-blue)](LICENSE)
 
 <br>
 
 <img src="docs/images/rviz_nesneler.png" alt="RViz: LiDAR ile nesne kutuları, mesafeler, yelpaze ve karar" width="100%">
 
-<sub>LiDAR algılama katmanı, gerçek kayıt üzerinde (RViz).</sub>
+<sub>Gerçek LiDAR kaydı üzerinde algılama katmanı (RViz): uyarı yelpazesi, DİKKAT kararı, takip edilen
+nesne kutuları, etiketler ve mesafeler.</sub>
 
 </div>
+
+---
+
+## ✨ Öne çıkanlar
+
+- **Gerçek zamanlı engel kararı** — RoboSense Helios 32 bulutundan, ayarlanabilir bir yelpaze içinde
+  10 Hz'te **DUR / DİKKAT / GÜVENLİ** kararı, en yakın engelin mesafesi ve konumu (`engel_node`).
+- **Hareketli nesne algılama** — RANSAC zemin ayırma, mesafeye uyarlanan kümeleme, yönlü 3B kutular ve
+  Kalman tabanlı takip. Bir noktanın yeri az önce **boş görülmüş mü** (görünürlük testi) diye bakarak
+  yayaları duvar ve park etmiş araçlardan ayırır; aracın önündeki **yol koridorundaki** her şeyi gösterir
+  (`nesne_node`).
+- **Odometrisiz araç hareketi** — araçta tekerlek sayacı / IMU olmadan, ardışık LiDAR taramalarını 2B ICP
+  ile üst üste oturtarak aracın hareketini bulur; takip yere göre, çarpışma süresi araca göre hesaplanır.
+- **Kontrol Merkezi** — araca oturan kişinin terminal açmadan sürücüyü, algılamayı, kayıt almayı ve
+  kayıt oynatmayı tek pencereden yönettiği Qt arayüzü; çalışırken değişen tüm ayarlar canlı.
+- **Gerçek veriyle geliştirme** — her şey sahada alınan kayıtlarla (rosbag2 / MCAP) masada tekrar
+  oynatılıp ayarlanabilir: duraklat, tur tur ilerlet, hızlandır.
+- **Ekip için tasarlandı** — ortak zemin (sürücüler, mesajlar, algılama) ile her ekip üyesinin kendi
+  sürüş yöntemi ayrı paketlerde; yöntemler aynı kayıt üzerinde yarıştırılabilir.
+
+---
+
+## 🖼️ Ekran görüntüleri
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/kontrol_merkezi.png" alt="Kontrol Merkezi ana ekranı"></td>
+    <td width="50%"><img src="docs/images/ayar_paneli.png" alt="Ayar paneli: canlı karar, yukarıdan bakış ve ayarlar"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Kontrol Merkezi</b> — LiDAR bağlantısı, disk, ayar profili ve kayıtlar tek bakışta;
+    dört bölüm, gereken programları arkada kendisi açar.</sub></td>
+    <td align="center"><sub><b>Ayar paneli</b> — canlı karar, yukarıdan bakış çizimi ve her ayar için
+    açıklamalı kaydırma çubukları.</sub></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td><img src="docs/images/panel_guvenli.png" alt="GÜVENLİ"></td>
+    <td><img src="docs/images/panel_dikkat.png" alt="DİKKAT"></td>
+    <td><img src="docs/images/panel_dur.png" alt="DUR"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>GÜVENLİ</sub></td>
+    <td align="center"><sub>DİKKAT</sub></td>
+    <td align="center"><sub>DUR</sub></td>
+  </tr>
+</table>
+
+---
+
+## 🏗️ Mimari
+
+```mermaid
+flowchart LR
+    L[RoboSense Helios 32] -->|Ethernet / UDP| S[rslidar_sdk]
+    S -->|/rslidar_points| E[engel_node]
+    S -->|/rslidar_points| N[nesne_node]
+    E -->|/engel/durum| D[Sürüş yöntemleri<br/>src/surus/*]
+    N -->|/nesne/liste<br/>/nesne/odometri| D
+    D -.->|araç komutu<br/>tanımlanacak| A[arac/<br/>Teensy katmanı]
+    K[Kontrol Merkezi] -.->|başlatır, ayarlar| E
+    K -.->|başlatır, ayarlar| N
+    K -.->|kayıt al / oynat| S
+```
+
+Algılama düğümleri araca komut vermez; sonuçlarını topic olarak yayınlar. Ne yapılacağına sürüş
+yöntemi karar verir. Algoritmalar ROS'tan bağımsız C++ modüllerindedir
+([`src/nesne/`](src/algilama/lidar_algilama/src/nesne/)); ROS tarafı ince bir katmandır.
+
+---
+
+## 📊 Durum
+
+| Bileşen | Durum |
+|---|---|
+| `engel_node` — yelpaze tabanlı DUR / DİKKAT / GÜVENLİ | ✅ Gerçek LiDAR ve kayıtlarla çalışıyor |
+| `nesne_node` — zemin, kümeleme, kutu, etiket, takip | ✅ Gerçek kayıtlarla çalışıyor |
+| `nesne_node` — LiDAR odometri + hareketli nesne + yol koridoru | 🟡 Sabit LiDAR kayıtlarında doğrulandı; araç hareketliyken doğrulama sürüyor |
+| Kontrol Merkezi ve ayar paneli | 🟡 Çalışıyor; sahada uçtan uca deneme sürüyor |
+| `arac/` — Teensy ile araç komut katmanı | ⏳ Planlandı |
+| `surus/` — sürüş yöntemleri | ⏳ Planlandı |
+| LiDAR + kamera füzyonu | ⏳ Planlandı |
 
 ---
 
@@ -31,6 +122,7 @@ sürüş yöntemleri, araca komut katmanı ve geliştirme araçları — tek bir
 - [Hızlı başlangıç](#-hızlı-başlangıç)
 - [Kendi sürüş yönteminizi ekleme](#-kendi-sürüş-yönteminizi-ekleme)
 - [Yapı](#️-yapı)
+- [Geliştirici](#-geliştirici)
 - [Lisans](#-lisans)
 
 ---
@@ -93,7 +185,7 @@ sudo apt install python3-vcstool ros-jazzy-pcl-conversions libpcl-dev ros-jazzy-
 
 ```bash
 cd ~
-git clone https://github.com/ayberkdoruk/robotaksi_ws.git robotaksi_ws
+git clone https://github.com/ayberkdoruk/robotaksi-autonomy.git robotaksi_ws
 cd ~/robotaksi_ws
 ```
 
@@ -227,7 +319,8 @@ Sürüş yöntemlerinin okuyabileceği / yazacağı topic'ler. Ayrıntılı alan
 |---|---|---|---|
 | `/rslidar_points` | `sensor_msgs/PointCloud2` | `rslidar_sdk` | Ham LiDAR bulutu, frame `rslidar`, ~10 Hz, SensorData QoS |
 | `/engel/durum` | [`robotaksi_msgs/EngelDurumu`](src/ortak/robotaksi_msgs/msg/EngelDurumu.msg) | `engel_node` | Yelpazedeki en yakın engelin bölgesi (`GUVENLI` / `DIKKAT` / `DUR`), mesafesi ve konumu. **Sürüş komutu değildir**, ne yapılacağına yönteminiz karar verir |
-| `/nesne/liste` | [`robotaksi_msgs/NesneDizisi`](src/ortak/robotaksi_msgs/msg/NesneDizisi.msg) | `nesne_node` | Takip edilen nesneler: kutu, mesafe, etiket, hız, çarpışma süresi |
+| `/nesne/liste` | [`robotaksi_msgs/NesneDizisi`](src/ortak/robotaksi_msgs/msg/NesneDizisi.msg) | `nesne_node` | Hareketli nesneler + yol koridorundaki engeller: kutu, mesafe, etiket, hız, çarpışma süresi |
+| `/nesne/odometri` | `nav_msgs/Odometry` | `nesne_node` | Aracın LiDAR taramalarından bulunan hareketi (konum, hız) |
 | `/nesne/zemin_durumu` | [`robotaksi_msgs/ZeminDurumu`](src/ortak/robotaksi_msgs/msg/ZeminDurumu.msg) | `nesne_node` | Ölçülen zemin düzlemi (yükseklik, eğim) ve ayarlardaki beklenenle uyumlu mu |
 | *(araç komutu)* | *henüz tanımlanmadı* | sürüş yöntemi | `arac/` katmanının dinleyeceği ortak komut |
 
@@ -240,6 +333,7 @@ açılar radyandır.
 
 ```
 robotaksi_ws/
+├── .github/workflows/build.yml      # her push'ta ROS 2 Jazzy üzerinde derleme (CI)
 ├── robotaksi.repos                  # dışarıdan çekilen depolar (sürücüler), sabit sürümle
 ├── scripts/
 │   └── dis_depolari_cek.sh          # dış depoları çeker + yamaları uygular (tekrar çalıştırılabilir)
@@ -262,6 +356,15 @@ robotaksi_ws/
 
 ---
 
+## 👤 Geliştirici
+
+**Ayberk Doruk** — [@ayberkdoruk](https://github.com/ayberkdoruk)
+
+Katkı kuralları ve ekip çalışma düzeni için: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
 ## 📄 Lisans
 
-[Apache License 2.0](LICENSE)
+[Apache License 2.0](LICENSE). Dışarıdan çekilen sürücüler (`rslidar_sdk`, `rslidar_msg`) kendi
+lisanslarına tabidir.

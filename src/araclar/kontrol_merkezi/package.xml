@@ -4,7 +4,7 @@
   <name>kontrol_merkezi</name>
   <version>0.1.0</version>
   <description>Robotaksi Kontrol Merkezi: LiDAR sürücüsü, engel algılama, kayıt alma ve oynatma tek pencerede; Türkçe ayar paneli ve kayıt/oynat betikleri</description>
-  <maintainer email="ayberk@todo.todo">ayberk</maintainer>
+  <maintainer email="ayberkdoruk.dev@gmail.com">Ayberk Doruk</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

@@ -5,7 +5,7 @@
   <name>lidar_algilama</name>
   <version>0.1.0</version>
   <description>RoboSense Helios 32 nokta bulutundan sektör tabanlı engel algılama (DUR / DIKKAT / GUVENLI) ve nesne algılama (LiDAR odometri, hareketli nesne + yol koridoru, kutu, mesafe, etiket, takip)</description>
-  <maintainer email="ayberk@todo.todo">ayberk</maintainer>
+  <maintainer email="ayberkdoruk.dev@gmail.com">Ayberk Doruk</maintainer>
   <license>Apache-2.0</license>
 
   <!-- Derleme sistemi: C++ paketleri için ament_cmake -->
