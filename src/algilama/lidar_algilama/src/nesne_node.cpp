@@ -38,6 +38,7 @@
 
 #include "robotaksi_msgs/msg/nesne.hpp"
 #include "robotaksi_msgs/msg/nesne_dizisi.hpp"
+#include "robotaksi_msgs/msg/zemin_durumu.hpp"
 
 #include "nesne/kumeleme.hpp"
 #include "nesne/kutu.hpp"
@@ -51,7 +52,7 @@ namespace
 constexpr double PI = 3.14159265358979323846;
 constexpr double DERECE_RADYAN = PI / 180.0;
 
-// Bundan hızlı nesne "hareketli" sayılır (hız oku çizilir, yaya güveni artar)
+// Hareket etmiş (takip "hareketli" dedi) ve bundan hızlı nesnenin hızı yazılır, oku çizilir
 constexpr double HAREKET_ESIGI = 0.3;  // m/s
 
 // -----------------------------------------------------------------------------
@@ -67,9 +68,12 @@ struct Ayarlar
   double govde_x_min = 0.0, govde_x_max = 0.0, govde_y_min = 0.0, govde_y_max = 0.0;
   double voxel_boyu = 0.08;
   // Zemin
+  bool zemin_otomatik = true;
   double zemin_z = -0.81, zemin_bant = 0.30, zemin_esik = 0.10, zemin_max_egim = 10.0;
   int zemin_min_nokta = 30;
   double max_yukseklik = 2.5;
+  // Zemin kontrolü (bulunan zemin beklenenle tutuyor mu)
+  double zemin_tolerans = 0.10, egim_uyari = 3.0;
   // Kümeleme
   double kume_yatay_tol = 0.35, kume_dikey_taban = 0.25, kume_dikey_artis = 0.04;
   int kume_min_nokta = 5, kume_max_nokta = 20000;
@@ -78,7 +82,9 @@ struct Ayarlar
     yaya_max_genislik = 1.0, yapi_min_uzunluk = 2.5, yapi_max_genislik = 0.5,
     yapi_kesin_uzunluk = 6.0;
   // Takip
-  double takip_kapi = 1.0;
+  double takip_kapi = 1.0, kutu_yumusatma = 0.7, hareket_mesafesi = 0.8;
+  // Hiç hareket etmemiş nesneleri (uyarı alanındakiler hariç) yayınlama / çizme
+  bool statik_gizle = false;
   int takip_dogrulama = 3, takip_kayip = 5;
   // Diğer
   bool canli_izleme = true;
@@ -86,6 +92,7 @@ struct Ayarlar
   nesne::ZeminAyari zemin() const
   {
     nesne::ZeminAyari z;
+    z.otomatik = zemin_otomatik;
     z.zemin_z = static_cast<float>(zemin_z);
     z.zemin_bant = static_cast<float>(zemin_bant);
     z.zemin_esik = static_cast<float>(zemin_esik);
@@ -120,6 +127,8 @@ struct Ayarlar
   {
     nesne::TakipAyari t;
     t.kapi = static_cast<float>(takip_kapi);
+    t.kutu_yumusatma = static_cast<float>(kutu_yumusatma);
+    t.hareket_mesafesi = static_cast<float>(hareket_mesafesi);
     t.dogrulama = takip_dogrulama;
     t.kayip = takip_kayip;
     return t;
@@ -151,16 +160,22 @@ const OndalikTanim ONDALIKLAR[] = {
   {"govde_y_max", &Ayarlar::govde_y_max, -10.0, 10.0, "Govde kutusu y ust siniri (metre)"},
   {"voxel_boyu", &Ayarlar::voxel_boyu, 0.0, 0.5,
     "Nokta seyreltme kup boyu (metre). 0 = kapali"},
-  {"zemin_z", &Ayarlar::zemin_z, -4.0, 0.0,
-    "Beklenen zemin yuksekligi, LiDAR'a gore (metre). Masada -0.81, aracta -montaj yuksekligi"},
+  {"zemin_z", &Ayarlar::zemin_z, -4.0, -0.3,
+    "Beklenen zemin yuksekligi, LiDAR'a gore (metre). Masada -0.81, aracta -montaj yuksekligi. "
+    "zemin_otomatik acikken sadece kontrol icin (ve zemin hic bulunamazsa varsayilan)"},
   {"zemin_bant", &Ayarlar::zemin_bant, 0.05, 1.5,
-    "Zemin sadece zemin_z +- bu kadar icinde aranir (metre)"},
+    "Takipte zemin onceki duzlemin +- bu kadar yakininda aranir (otomatik kapaliysa ilk "
+    "aramada da zemin_z +- bu kadar) (metre)"},
   {"zemin_esik", &Ayarlar::zemin_esik, 0.02, 0.5,
     "Zemin duzlemine bundan yakin nokta zemin sayilir (metre)"},
   {"zemin_max_egim", &Ayarlar::zemin_max_egim, 1.0, 30.0,
     "Zemin en fazla bu kadar egik olabilir (derece)"},
   {"max_yukseklik", &Ayarlar::max_yukseklik, 0.5, 6.0,
     "Zeminden bu kadar yukarisi (tavan, dal) yok sayilir (metre)"},
+  {"zemin_tolerans", &Ayarlar::zemin_tolerans, 0.02, 1.0,
+    "Bulunan zemin zemin_z'den bundan fazla farkliysa uyari verilir (metre)"},
+  {"egim_uyari", &Ayarlar::egim_uyari, 0.5, 30.0,
+    "Bulunan zemin bundan fazla egikse uyari verilir (derece)"},
   {"kume_yatay_tol", &Ayarlar::kume_yatay_tol, 0.05, 2.0,
     "Ayni nesne sayilmak icin en fazla yatay aralik (metre)"},
   {"kume_dikey_taban", &Ayarlar::kume_dikey_taban, 0.05, 2.0,
@@ -183,6 +198,11 @@ const OndalikTanim ONDALIKLAR[] = {
     "Bundan uzun her sey yapi (metre)"},
   {"takip_kapi", &Ayarlar::takip_kapi, 0.1, 5.0,
     "Takip: tahmin ile kutu arasi en fazla bu kadar olabilir (metre)"},
+  {"kutu_yumusatma", &Ayarlar::kutu_yumusatma, 0.0, 0.95,
+    "Kutu titremesini azaltir: 0 = kapali (ham kutu), 0.9 = cok yumusak. Mesafe yumusatilmaz"},
+  {"hareket_mesafesi", &Ayarlar::hareket_mesafesi, 0.2, 3.0,
+    "Nesne ilk goruldugu / son hareket ettigi yerden bundan fazla uzaklasinca hareketli sayilir; "
+    "5 sn yerinde durursa tekrar duran sayilir (metre)"},
 };
 
 struct TamsayiTanim
@@ -272,6 +292,8 @@ public:
     kume_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("/nesne/kumeler", 10);
     zemin_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("/nesne/zemin", 10);
     zemin_disi_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("/nesne/zemin_disi", 10);
+    zemin_durumu_pub_ =
+      create_publisher<robotaksi_msgs::msg::ZeminDurumu>("/nesne/zemin_durumu", 10);
 
     nokta_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       "/rslidar_points", rclcpp::SensorDataQoS(),
@@ -341,6 +363,19 @@ private:
       ayarlar_.*t.alan = static_cast<int>(
         declare_parameter<int64_t>(t.ad, ayarlar_.*t.alan, tanim));
     }
+    rcl_interfaces::msg::ParameterDescriptor otomatik;
+    otomatik.description =
+      "true: zemin acilista ipucusuz aranir (LiDAR'in altindaki en alcak genis yatay yuzey); "
+      "zemin_z sadece kontrol icin kullanilir. false: zemin sadece zemin_z +- zemin_bant icinde aranir";
+    ayarlar_.zemin_otomatik = declare_parameter<bool>("zemin_otomatik", true, otomatik);
+
+    rcl_interfaces::msg::ParameterDescriptor statik;
+    statik.description =
+      "true: hic hareket etmemis nesneler /nesne/liste'de ve RViz'de gosterilmez (uyari "
+      "alanindakiler haric). Takip arkada surer; nesne hareket edince hemen gorunur, "
+      "5 sn yerinde durunca tekrar gizlenir";
+    ayarlar_.statik_gizle = declare_parameter<bool>("statik_gizle", false, statik);
+
     rcl_interfaces::msg::ParameterDescriptor canli;
     canli.description = "Saniyede bir ozet satiri yaz (nesne sayisi, en yakin, islem suresi)";
     ayarlar_.canli_izleme = declare_parameter<bool>("canli_izleme", true, canli);
@@ -366,6 +401,8 @@ private:
         if (ad == t.ad) {yeni.*t.alan = static_cast<int>(p.as_int());}
       }
       if (ad == "canli_izleme") {yeni.canli_izleme = p.as_bool();}
+      if (ad == "zemin_otomatik") {yeni.zemin_otomatik = p.as_bool();}
+      if (ad == "statik_gizle") {yeni.statik_gizle = p.as_bool();}
     }
     const std::string hata = ayarlariKontrolEt(yeni);
     if (!hata.empty()) {
@@ -374,8 +411,11 @@ private:
       RCLCPP_WARN(get_logger(), "Parametre degisikligi reddedildi: %s", hata.c_str());
       return sonuc;
     }
-    // Beklenen zemin yüksekliği değiştiyse eski düzlemi unut, yeniden ara
-    if (yeni.zemin_z != ayarlar_.zemin_z) {
+    // Arama yöntemi değiştiyse eski düzlemi unut, ilk aramayı yeniden yap. Otomatikte
+    // zemin_z sadece kontrol için kullanıldığından onun değişmesi aramayı etkilemez.
+    if (yeni.zemin_otomatik != ayarlar_.zemin_otomatik ||
+      (!yeni.zemin_otomatik && yeni.zemin_z != ayarlar_.zemin_z))
+    {
       zemin_.sifirla();
     }
     ayarlar_ = yeni;
@@ -504,16 +544,7 @@ private:
 
     // --- 3) Zemin ayırma ---
     const auto zemin_sonuc = zemin_.ayir(*seyrek, a.zemin());
-    if (!zemin_sonuc.yeni_duzlem_bulundu) {
-      if (!zemin_uyarisi_verildi_) {
-        RCLCPP_WARN(get_logger(),
-          "Zemin duzlemi bulunamadi, onceki/varsayilan duzlem kullaniliyor (zemin_z = %.2f). "
-          "Bu mesaj zemin tekrar bulunana kadar bir kez yazilir.", a.zemin_z);
-        zemin_uyarisi_verildi_ = true;
-      }
-    } else {
-      zemin_uyarisi_verildi_ = false;
-    }
+    zeminiKontrolEt(msg->header, zemin_sonuc, a);
 
     // --- 4) Kümeleme ---
     const auto kumeler = nesne::kumele(zemin_sonuc.nesne, a.kume());
@@ -534,7 +565,8 @@ private:
     const auto izler = takipci_.guncelle(kutular, etiketler, zaman, a.takip());
 
     // --- 7) Yayınla ---
-    const auto liste = listeOlustur(msg->header, izler);
+    const auto liste = listeOlustur(msg->header, izler, a);
+    const size_t gizlenen = izler.size() - liste.nesneler.size();
     liste_pub_->publish(liste);
 
     if (gorsel_pub_->get_subscription_count() > 0) {
@@ -567,25 +599,122 @@ private:
       }
       const auto & d = zemin_.duzlem();
       RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-        "[NESNE] nokta %zu->%zu | zemin %zu, nesne %zu | kume %zu | iz %zu (yaya %d) | "
-        "en yakin: %s | zemin z %.2f egim %.1f | %.1f ms",
+        "[NESNE] nokta %zu->%zu | zemin %zu, nesne %zu | kume %zu | iz %zu (yaya %d, gizli %zu) | "
+        "en yakin: %s | zemin z %.2f egim %.1f (%s, %s) | %.1f ms",
         giris_sayisi, seyrek->size(), zemin_sonuc.zemin->size(), zemin_sonuc.nesne->size(),
-        kumeler.size(), liste.nesneler.size(), yaya, yakin_metin, d.merkezZ(),
-        std::acos(std::min(1.0f, d.c)) / DERECE_RADYAN, sure_ms);
+        kumeler.size(), liste.nesneler.size(), yaya, gizlenen, yakin_metin, d.merkezZ(),
+        egimDerece(d), kaynakAdi(zemin_sonuc.kaynak), zemin_uyumlu_ ? "uyumlu" : "UYUMSUZ",
+        sure_ms);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Zemin kontrolü: bulunan zemin beklenenle (zemin_z, egim_uyari) tutuyor mu?
+  // Sonuç her turda /nesne/zemin_durumu ile yayınlanır; durum değişince terminale yazılır.
+  // LiDAR yerinden oynarsa ya da yanlış profil yüklüyse (ör. araçta masa ayarı) böylece fark edilir.
+  // ---------------------------------------------------------------------------
+  static double egimDerece(const nesne::Duzlem & d)
+  {
+    return std::acos(std::min(1.0f, d.c)) / DERECE_RADYAN;
+  }
+
+  static const char * kaynakAdi(nesne::ZeminKaynagi k)
+  {
+    switch (k) {
+      case nesne::ZeminKaynagi::OLCULDU: return "olculdu";
+      case nesne::ZeminKaynagi::ONCEKI: return "onceki";
+      default: return "varsayilan";
+    }
+  }
+
+  void zeminiKontrolEt(
+    const std_msgs::msg::Header & header, const nesne::ZeminAyirici::Sonuc & s, const Ayarlar & a)
+  {
+    const nesne::Duzlem & d = zemin_.duzlem();
+    const double yukseklik = d.merkezZ();
+    const double egim = egimDerece(d);
+    const bool varsayilan = s.kaynak == nesne::ZeminKaynagi::VARSAYILAN;
+    const bool yukseklik_tutuyor = std::fabs(yukseklik - a.zemin_z) <= a.zemin_tolerans;
+    const bool egim_tutuyor = egim <= a.egim_uyari;
+    const bool simdi_uyumlu = !varsayilan && yukseklik_tutuyor && egim_tutuyor;
+
+    // Otomatik ilk arama sonucu
+    if (s.ilk_arama && s.kaynak == nesne::ZeminKaynagi::OLCULDU) {
+      if (a.zemin_otomatik) {
+        RCLCPP_INFO(get_logger(),
+          "Zemin otomatik bulundu: z %.2f m, egim %.1f derece (%d yatay yuzeyin en alcagi; "
+          "beklenen z %.2f)", yukseklik, egim, s.yatay_yuzey_sayisi, a.zemin_z);
+      } else {
+        RCLCPP_INFO(get_logger(), "Zemin zemin_z yakininda bulundu: z %.2f m, egim %.1f derece",
+          yukseklik, egim);
+      }
+    }
+
+    // Uyum durumu: titremesin diye yeni durum UYUM_TUR tur üst üste görülünce değişir
+    if (zemin_uyum_ilk_) {
+      zemin_uyumlu_ = simdi_uyumlu;
+      zemin_uyum_ilk_ = false;
+      zemin_uyum_sayac_ = UYUM_TUR;  // ilk durumu da aşağıda bir kez yaz
+    } else if (simdi_uyumlu != zemin_uyumlu_) {
+      if (++zemin_uyum_sayac_ >= UYUM_TUR) {
+        zemin_uyumlu_ = simdi_uyumlu;
+      }
+    } else {
+      zemin_uyum_sayac_ = 0;
+    }
+    if (zemin_uyum_sayac_ >= UYUM_TUR) {
+      zemin_uyum_sayac_ = 0;
+      if (zemin_uyumlu_) {
+        RCLCPP_INFO(get_logger(), "Zemin beklenenle uyumlu: z %.2f m (beklenen %.2f), egim %.1f derece",
+          yukseklik, a.zemin_z, egim);
+      } else if (varsayilan) {
+        RCLCPP_WARN(get_logger(),
+          "Zemin bulunamadi; beklenen yukseklikte (zemin_z = %.2f) duz zemin varsayiliyor. "
+          "LiDAR yeri goremiyor olabilir (ortam cok dolu ya da LiDAR yukari bakiyor).", a.zemin_z);
+      } else if (!yukseklik_tutuyor) {
+        RCLCPP_WARN(get_logger(),
+          "Zemin %.2f m'de bulundu ama beklenen %.2f m (fark %.0f cm > %.0f cm). LiDAR yerinden "
+          "oynamis ya da yanlis profil yuklu olabilir. Olcum dogruysa zemin_z'yi %.2f yapin.",
+          yukseklik, a.zemin_z, std::fabs(yukseklik - a.zemin_z) * 100.0,
+          a.zemin_tolerans * 100.0, yukseklik);
+      } else {
+        RCLCPP_WARN(get_logger(),
+          "Zemin %.1f derece egik (sinir %.1f). LiDAR yamuk duruyor olabilir.", egim, a.egim_uyari);
+      }
+    }
+
+    robotaksi_msgs::msg::ZeminDurumu m;
+    m.header = header;
+    m.kaynak = static_cast<uint8_t>(s.kaynak);
+    m.otomatik = a.zemin_otomatik;
+    m.yukseklik = static_cast<float>(yukseklik);
+    m.egim = static_cast<float>(egim);
+    m.duzlem = {d.a, d.b, d.c, d.d};
+    m.beklenen_yukseklik = static_cast<float>(a.zemin_z);
+    m.yukseklik_toleransi = static_cast<float>(a.zemin_tolerans);
+    m.egim_siniri = static_cast<float>(a.egim_uyari);
+    m.uyumlu = zemin_uyumlu_;
+    zemin_durumu_pub_->publish(m);
   }
 
   // ---------------------------------------------------------------------------
   // /nesne/liste mesajı
   // ---------------------------------------------------------------------------
+  // statik_gizle açıksa hiç hareket etmemiş nesneler listeye girmez; uyarı alanındakiler
+  // (aracın önündeki duran engeller) her zaman girer.
   robotaksi_msgs::msg::NesneDizisi listeOlustur(
-    const std_msgs::msg::Header & header, const std::vector<nesne::Takipci::Iz> & izler) const
+    const std_msgs::msg::Header & header, const std::vector<nesne::Takipci::Iz> & izler,
+    const Ayarlar & a) const
   {
     robotaksi_msgs::msg::NesneDizisi dizi;
     dizi.header = header;
     dizi.nesneler.reserve(izler.size());
     for (const auto & iz : izler) {
       const auto & k = iz.kutu;
+      const bool uyari_alaninda = yelpaze_.iceride(k.yakin_x, k.yakin_y);
+      if (a.statik_gizle && !iz.hareketli && !uyari_alaninda) {
+        continue;
+      }
       robotaksi_msgs::msg::Nesne n;
       n.id = iz.id;
       n.etiket = iz.etiket;
@@ -616,13 +745,13 @@ private:
       n.yaklasma_hizi = r > 1e-3 ? static_cast<float>(-(vx * k.cx + vy * k.cy) / r) : 0.0f;
       n.carpisma_suresi = n.yaklasma_hizi > 0.05f ? n.mesafe / n.yaklasma_hizi : -1.0f;
 
-      n.uyari_alaninda = yelpaze_.iceride(k.yakin_x, k.yakin_y);
+      n.uyari_alaninda = uyari_alaninda;
+      n.hareketli = iz.hareketli;
 
-      // Güven (kural tabanlı): etiket kuralına uyuyor 0.6, hareketli yaya +0.3,
+      // Güven (kural tabanlı): etiket kuralına uyuyor 0.6, hareket etmiş yaya +0.3,
       // uzun süredir takipte +0.1
-      const double hiz = std::hypot(vx, vy);
       double guven = 0.6;
-      if (iz.etiket == nesne::ETIKET_YAYA && hiz > HAREKET_ESIGI) {guven += 0.3;}
+      if (iz.etiket == nesne::ETIKET_YAYA && iz.hareketli) {guven += 0.3;}
       if (iz.yas >= 10) {guven += 0.1;}
       n.guven = static_cast<float>(std::min(1.0, guven));
 
@@ -805,8 +934,9 @@ private:
         dizi.markers.push_back(dolgu);
       }
 
-      // 3) Yazı: "#12 YAYA? 3.4 m" (+ hareketliyse hız)
-      const double hiz = std::hypot(n.hiz.x, n.hiz.y);
+      // 3) Yazı: "#12 YAYA? 3.4 m" (+ hareketliyse hız). Hiç hareket etmemiş nesnelerin
+      // Kalman hızı sadece gürültüdür, yazılmaz.
+      const double hiz = n.hareketli ? std::hypot(n.hiz.x, n.hiz.y) : 0.0;
       Marker yazi = yeni(Marker::TEXT_VIEW_FACING);
       yazi.pose.position = nokta(n.merkez.x, n.merkez.y, ust + 0.3);
       yazi.scale.z = 0.25;
@@ -843,7 +973,11 @@ private:
   Ayarlar ayarlar_;
   nesne::ZeminAyirici zemin_;
   nesne::Takipci takipci_;
-  bool zemin_uyarisi_verildi_ = false;
+  // Zemin uyum durumu (zeminiKontrolEt)
+  static constexpr int UYUM_TUR = 10;  // 10 Hz'de 1 sn
+  bool zemin_uyumlu_ = false;
+  bool zemin_uyum_ilk_ = true;
+  int zemin_uyum_sayac_ = 0;
 
   // Kapanışta ekranı temizlemek için (ekraniTemizle)
   std::mutex kapanis_mutex_;
@@ -863,6 +997,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr kume_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr zemin_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr zemin_disi_pub_;
+  rclcpp::Publisher<robotaksi_msgs::msg::ZeminDurumu>::SharedPtr zemin_durumu_pub_;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
 };
 

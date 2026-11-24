@@ -20,10 +20,24 @@ nesne_node:
     govde_y_min: -0.95
     govde_y_max: 0.9
     voxel_boyu: 0.08        # Nokta seyreltme küp boyu (metre). Hız için; 0.0 = kapalı
+    # Duran nesneleri gizle: hiç hareket etmemiş nesneler /nesne/liste'ye ve RViz'e girmez
+    # (uyarı alanındakiler hariç). Takip arkada sürer, nesne yürümeye başlayınca hemen görünür;
+    # 5 sn yerinde durunca tekrar gizlenir. engel_node'un DUR / DIKKAT kararını etkilemez.
+    statik_gizle: false
+    hareket_mesafesi: 0.8   # Bundan fazla yer değiştiren nesne "hareketli" (metre). Duran nesnelerin
+                            # kümeleri birleşip ayrılınca merkezleri 0.6-0.8 m sıçrayabiliyor
 
     # --- 2) Zemin ---
+    # Otomatik açıkken zemin açılışta kendisi bulunur (LiDAR'ın altındaki en alçak geniş
+    # yatay yüzey); zemin_z o zaman sadece KONTROL içindir: bulunan zemin zemin_z'den
+    # zemin_tolerans'tan fazla farklıysa ya da egim_uyari'dan eğikse uyarı verilir
+    # (terminal + Kontrol Merkezi + /nesne/zemin_durumu).
+    zemin_otomatik: true
     zemin_z: -0.81          # Beklenen zemin yüksekliği (LiDAR'a göre). Araçta: -montaj yüksekliği
-    zemin_bant: 0.30        # Zemin sadece zemin_z ± bu kadar içinde aranır
+    zemin_tolerans: 0.10    # Kontrol: bulunan zemin en fazla bu kadar farklı olabilir (metre)
+    egim_uyari: 3.0         # Kontrol: bulunan zemin en fazla bu kadar eğik olabilir (derece)
+    zemin_bant: 0.30        # Takipte zemin önceki düzlemin ± bu kadar yakınında aranır
+                            # (otomatik kapalıysa ilk aramada da zemin_z ± bu kadar)
     zemin_esik: 0.10        # Zemin düzlemine bundan yakın nokta zemin sayılır
     zemin_max_egim: 10.0    # Zemin en fazla bu kadar eğik olabilir (derece)
     zemin_min_nokta: 30     # Zemin düzleminin kabulü için en az nokta
@@ -49,5 +63,7 @@ nesne_node:
     takip_kapi: 1.0         # Bir turda en fazla bu kadar yer değiştirebilir (metre)
     takip_dogrulama: 3      # Yeni nesne 3 tur üst üste görülünce numara alır
     takip_kayip: 5          # 5 tur görülmeyen nesne silinir
+    kutu_yumusatma: 0.7     # Kutu titremesini azaltır (0 = kapalı, 0.9 = çok yumuşak).
+                            # Mesafe / en yakın nokta yumuşatılmaz (güvenlik için gecikmemeli)
 
     canli_izleme: true      # Saniyede bir özet satırı

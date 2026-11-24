@@ -83,8 +83,9 @@ SEKMELER = [
      "nesne_node'un nesneleri kutu içine aldığı alan. Uyarı yelpazesinden bağımsızdır "
      "(çizimde mavi kesik çizgi). Gövde kutusu, aracın kendi gövdesini yok saydırır."),
     ("zemin", "Zemin", NESNE,
-     "Zemin her turda yeniden ölçülüp ayrılır. Araçta en önemli ayar 'Beklenen zemin "
-     "yüksekliği'dir: LiDAR'ın yerden yüksekliğinin eksilisi (1.80 m → -1.80)."),
+     "Zemin her turda yeniden ölçülüp ayrılır. 'Otomatik zemin bulma' açıkken açılışta kendisi "
+     "bulunur; 'Beklenen zemin yüksekliği' (LiDAR'ın yerden yüksekliğinin eksilisi, 1.80 m → "
+     "-1.80) o zaman kontrol için kullanılır: bulunan zemin tutmazsa uyarı çıkar."),
     ("kume", "Kümeleme", NESNE,
      "Zemin dışında kalan noktalar birbirine yakınlığına göre nesnelere ayrılır. Yan yana "
      "iki nesne birleşiyorsa mesafeleri küçültün; tek nesne parçalanıyorsa büyütün."),
@@ -149,13 +150,32 @@ AYARLAR = [
       "Gövde kutusunun sağ sınırı (y; sağ taraf eksidir).", "kutulama"),
     A("govde_y_max", NESNE, "Gövde kutusu: sol sınır", "m", -10.0, 10.0, 0.05, 0.0,
       "Gövde kutusunun sol sınırı (y).", "kutulama"),
+    A("statik_gizle", NESNE, "Duran nesneleri gizle", "", 0, 1, 1, False,
+      "Açıkken hiç hareket etmemiş nesneler (duvar, masa, dolap…) kutulanmaz ve listede görünmez; "
+      "sadece hareket eden nesneler (yayalar) ve uyarı alanının içindeki duran engeller gösterilir. "
+      "Takip arkada sürer: duran bir nesne yürümeye başlarsa hemen görünür; 5 sn yerinde duran "
+      "nesne tekrar gizlenir. DUR / DİKKAT kararını (engel_node) etkilemez.",
+      "kutulama", "mantik"),
+    A("hareket_mesafesi", NESNE, "Hareketli sayılma mesafesi", "m", 0.2, 3.0, 0.05, 0.8,
+      "Nesne bundan fazla yer değiştirince hareketli sayılır (5 sn yerinde durursa tekrar duran). "
+      "Duran nesneler yanlışlıkla görünüyorsa büyütün, yayalar geç görünüyorsa küçültün.",
+      "kutulama"),
 
-    A("zemin_z", NESNE, "Beklenen zemin yüksekliği", "m", -4.0, 0.0, 0.01, -0.81,
-      "Zeminin LiDAR'a göre yüksekliği. Masada ≈ -0.81; araçta LiDAR'ın yerden yüksekliğinin "
-      "eksilisi.", "zemin"),
+    A("zemin_otomatik", NESNE, "Otomatik zemin bulma", "", 0, 1, 1, True,
+      "Açıkken zemin açılışta ipucusuz aranır: LiDAR'ın altındaki en alçak geniş yatay yüzey "
+      "(masa, tezgâh, kaldırım hep zeminin üstündedir). Kapalıyken sadece beklenen yüksekliğin "
+      "± arama bandı içinde aranır.", "zemin", "mantik"),
+    A("zemin_z", NESNE, "Beklenen zemin yüksekliği", "m", -4.0, -0.3, 0.01, -0.81,
+      "Zeminin LiDAR'a göre yüksekliği: LiDAR'ın yerden yüksekliğinin eksilisi. Otomatik açıkken "
+      "sadece kontrol için kullanılır (ve zemin hiç bulunamazsa bu yükseklik varsayılır).", "zemin"),
+    A("zemin_tolerans", NESNE, "Zemin kontrolü: yükseklik farkı", "m", 0.02, 1.0, 0.01, 0.10,
+      "Bulunan zemin beklenenden bundan fazla farklıysa uyarı çıkar (LiDAR oynamış ya da yanlış "
+      "profil yüklü olabilir).", "zemin"),
+    A("egim_uyari", NESNE, "Zemin kontrolü: en fazla eğim", "°", 0.5, 30.0, 0.5, 3.0,
+      "Bulunan zemin bundan fazla eğikse uyarı çıkar (LiDAR yamuk duruyor olabilir).", "zemin"),
     A("zemin_bant", NESNE, "Zemin arama bandı", "m", 0.05, 1.5, 0.01, 0.30,
-      "Zemin sadece beklenen yüksekliğin ± bu kadar içinde aranır. Yol eğimliyse biraz büyütün.",
-      "zemin"),
+      "Zemin her turda bir önceki zeminin ± bu kadar yakınında aranır (otomatik kapalıysa ilk "
+      "aramada da beklenen yüksekliğin ± bu kadarı). Yol eğimliyse biraz büyütün.", "zemin"),
     A("zemin_esik", NESNE, "Zemin kalınlığı", "m", 0.02, 0.5, 0.01, 0.10,
       "Zemin düzlemine bundan yakın noktalar zemin sayılır. Büyütürseniz alçak cisimler (kaldırım "
       "taşı) zemine karışabilir.", "zemin"),
@@ -197,6 +217,10 @@ AYARLAR = [
     A("takip_kapi", NESNE, "Bir turda en fazla yer değiştirme", "m", 0.1, 5.0, 0.05, 1.0,
       "Bir nesne iki tur arasında bundan fazla yer değiştirirse aynı nesne sayılmaz. Hızlı "
       "nesneleri kaybediyorsanız büyütün.", "takip"),
+    A("kutu_yumusatma", NESNE, "Kutu yumuşatma", "", 0.0, 0.95, 0.05, 0.7,
+      "Kutunun kareden kareye titremesini azaltır: merkez takipten, boyut ve yön yavaşça "
+      "güncellenir. 0 = kapalı (ham kutu), 0.9 = çok yumuşak (değişime geç tepki). Mesafe ve en "
+      "yakın nokta yumuşatılmaz, her zaman o turun ölçümüdür.", "takip"),
     A("takip_dogrulama", NESNE, "Numara için gereken tur", "tur", 1, 20, 1, 3,
       "Yeni bir nesne bu kadar tur üst üste görülünce numara alır (tek turluk gürültü numara "
       "almaz).", "takip", "tam"),

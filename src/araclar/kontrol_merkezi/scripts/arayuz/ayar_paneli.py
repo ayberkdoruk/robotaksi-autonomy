@@ -171,6 +171,11 @@ class AyarPaneli(QWidget):
     def bagli(self, node):
         return self.baglantilar[node].yuklendi
 
+    def deger_ata(self, anahtar, v):
+        """Bir ayarı panel dışından değiştirir (ör. nesne kartındaki düğme); normal yoldan uygulanır."""
+        self.satirlar[anahtar].ayarla(v)
+        self._ayar_degisti(anahtar)
+
     def sifirla(self):
         """Node'lar yeniden açılacaksa: bağlantı durumunu baştan kur (değerler tekrar okunur)."""
         for node, b in self.baglantilar.items():

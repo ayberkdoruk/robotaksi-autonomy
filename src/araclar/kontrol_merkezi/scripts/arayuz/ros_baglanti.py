@@ -25,11 +25,11 @@ from sensor_msgs.msg import PointCloud2
 from .ayar_tanim import ENGEL, NESNE
 
 try:
-    from robotaksi_msgs.msg import EngelDurumu, NesneDizisi
+    from robotaksi_msgs.msg import EngelDurumu, NesneDizisi, ZeminDurumu
     DURUM_ADLARI = {EngelDurumu.GUVENLI: "GUVENLI", EngelDurumu.DIKKAT: "DIKKAT",
                     EngelDurumu.DUR: "DUR"}
 except ImportError:  # mesaj paketi derlenmemişse durum ve nesne tablosu boş kalır
-    EngelDurumu = NesneDizisi = None
+    EngelDurumu = NesneDizisi = ZeminDurumu = None
     DURUM_ADLARI = {}
 
 OYNATICI = "/rosbag2_player"
@@ -105,6 +105,7 @@ class RosBaglanti:
         self.karar, self.mesafe = None, -1.0
         self.engel_noktasi, self.nokta_zamani = None, 0.0
         self.nesneler, self.nesne_zamani = [], 0.0
+        self.zemin, self.zemin_zamani = None, 0.0
         self.nokta_sayisi = 0
         self.saat_ns, self.saat_zamani = None, 0.0
         self.karar_sayac = HizSayaci()
@@ -115,6 +116,8 @@ class RosBaglanti:
             n.create_subscription(EngelDurumu, "/engel/durum", self._durum, 10)
         if NesneDizisi is not None:
             n.create_subscription(NesneDizisi, "/nesne/liste", self._nesneler, 10)
+        if ZeminDurumu is not None:
+            n.create_subscription(ZeminDurumu, "/nesne/zemin_durumu", self._zemin, 10)
         # raw=True: mesaj Python nesnesine çevrilmez (1.5 MB x 10 Hz), sadece sayılır
         n.create_subscription(PointCloud2, "/rslidar_points", self._bulut,
                               qos_profile_sensor_data, raw=True)
@@ -161,6 +164,9 @@ class RosBaglanti:
         self.nesneler, self.nesne_zamani = list(msg.nesneler), time.monotonic()
         self.nesne_sayac.isaretle()
 
+    def _zemin(self, msg):
+        self.zemin, self.zemin_zamani = msg, time.monotonic()
+
     def _bulut(self, veri):
         self.nokta_sayisi = bulut_boyutu(veri)
         self.lidar_sayac.isaretle()
@@ -178,6 +184,9 @@ class RosBaglanti:
 
     def nesneler_taze(self, sure=1.0):
         return time.monotonic() - self.nesne_zamani < sure
+
+    def zemin_taze(self, sure=1.5):
+        return self.zemin is not None and time.monotonic() - self.zemin_zamani < sure
 
     def node_var_mi(self, ad):
         """Bu adla çalışan bir ROS node'u var mı? (ör. 'engel_node')"""

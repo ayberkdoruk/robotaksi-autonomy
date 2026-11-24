@@ -228,6 +228,7 @@ Sürüş yöntemlerinin okuyabileceği / yazacağı topic'ler. Ayrıntılı alan
 | `/rslidar_points` | `sensor_msgs/PointCloud2` | `rslidar_sdk` | Ham LiDAR bulutu, frame `rslidar`, ~10 Hz, SensorData QoS |
 | `/engel/durum` | [`robotaksi_msgs/EngelDurumu`](src/ortak/robotaksi_msgs/msg/EngelDurumu.msg) | `engel_node` | Yelpazedeki en yakın engelin bölgesi (`GUVENLI` / `DIKKAT` / `DUR`), mesafesi ve konumu. **Sürüş komutu değildir**, ne yapılacağına yönteminiz karar verir |
 | `/nesne/liste` | [`robotaksi_msgs/NesneDizisi`](src/ortak/robotaksi_msgs/msg/NesneDizisi.msg) | `nesne_node` | Takip edilen nesneler: kutu, mesafe, etiket, hız, çarpışma süresi |
+| `/nesne/zemin_durumu` | [`robotaksi_msgs/ZeminDurumu`](src/ortak/robotaksi_msgs/msg/ZeminDurumu.msg) | `nesne_node` | Ölçülen zemin düzlemi (yükseklik, eğim) ve ayarlardaki beklenenle uyumlu mu |
 | *(araç komutu)* | *henüz tanımlanmadı* | sürüş yöntemi | `arac/` katmanının dinleyeceği ortak komut |
 
 Konumlar sensörün kendi frame'indedir: **x = ileri, y = sol, z = yukarı**, birim metre; mesajlardaki
@@ -245,7 +246,7 @@ robotaksi_ws/
 ├── docs/images/                     # README görselleri
 └── src/
     ├── ortak/
-    │   ├── robotaksi_msgs/          # ortak mesajlar (EngelDurumu, Nesne, NesneDizisi)
+    │   ├── robotaksi_msgs/          # ortak mesajlar (EngelDurumu, Nesne, NesneDizisi, ZeminDurumu)
     │   └── robotaksi_baslat/        # ros_ortami.sh, Fast DDS ayarı
     ├── surucular/
     │   ├── yamalar/                 # dış sürücülere uyguladığımız yamalar

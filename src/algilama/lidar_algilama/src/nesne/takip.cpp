@@ -18,7 +18,77 @@ constexpr double ILK_HIZ_BELIRSIZLIGI = 2.0;  // m/s: yeni izin hızını bilmiy
 // Kayıt "--loop" ile başa sardığında zaman geriye atlar; ya da veri bir süre kesilir.
 // O durumda eski izlerle eşleştirmek anlamsız: hepsini sıfırla.
 constexpr double MAX_DT = 1.0;
+
+// Kutu yumuşatma
+constexpr float PI_F = 3.14159265358979323846f;
+// Yön bir turda en fazla bu kadar döner. Kareye yakın nesnelerde tek turluk 30-60°
+// zıplamalar böylece birkaç dereceye iner; gerçekten dönen bir araç (ör. 30°/s = 3°/tur)
+// rahatça izlenir.
+constexpr float MAX_YON_ADIMI = 15.0f * PI_F / 180.0f;
+
+// Hareketli iz bu kadar süre çapasından uzaklaşmazsa tekrar "duran" sayılır (saniye)
+constexpr double DURMA_SURESI = 5.0;
+
+// a - b farkı, kutu 180° simetrik olduğu için (-90°, +90°] aralığında
+float yonFarki(float a, float b)
+{
+  float d = a - b;
+  while (d > PI_F / 2.0f) {d -= PI_F;}
+  while (d <= -PI_F / 2.0f) {d += PI_F;}
+  return d;
+}
+
+float yonuDuzelt(float a)
+{
+  return yonFarki(a, 0.0f);
+}
 }  // namespace
+
+void Takipci::kutuyuYumusat(IcIz & iz, const Kutu & olcum, float yumusatma)
+{
+  const float alfa = 1.0f - yumusatma;
+  Kutu & d = iz.duz;
+  // Aynı dikdörtgen iki şekilde yazılabilir: (uzunluk, genislik, yon) ya da
+  // (genislik, uzunluk, yon + 90°). Önceki yöne yakın olanı seç; yoksa uzunluk ile
+  // genişlik birbirine yakınken kutu her turda 90° dönmüş gibi görünürdü.
+  float u = olcum.uzunluk, g = olcum.genislik, yon = olcum.yon;
+  if (std::fabs(yonFarki(yon + PI_F / 2.0f, d.yon)) < std::fabs(yonFarki(yon, d.yon))) {
+    std::swap(u, g);
+    yon += PI_F / 2.0f;
+  }
+  const float fark = std::clamp(yonFarki(yon, d.yon), -MAX_YON_ADIMI, MAX_YON_ADIMI);
+  d.yon = yonuDuzelt(d.yon + alfa * fark);
+  d.uzunluk += alfa * (u - d.uzunluk);
+  d.genislik += alfa * (g - d.genislik);
+  d.yukseklik += alfa * (olcum.yukseklik - d.yukseklik);
+  d.cz += alfa * (olcum.cz - d.cz);
+}
+
+Kutu Takipci::ciktiKutusu(const IcIz & iz, float yumusatma)
+{
+  if (yumusatma <= 0.0f) {
+    return iz.kutu;  // yumuşatma kapalı: ham kutu
+  }
+  // Mesafe, en yakın nokta, tepe yüksekliği, nokta sayısı: son ham ölçüm
+  Kutu k = iz.kutu;
+  k.cx = static_cast<float>(iz.x(0));  // merkez: Kalman
+  k.cy = static_cast<float>(iz.x(1));
+  k.cz = iz.duz.cz;
+  k.yukseklik = iz.duz.yukseklik;
+  k.alt_z = k.cz - k.yukseklik / 2.0f;
+  k.ust_z = k.cz + k.yukseklik / 2.0f;
+  // Dışarıya her zaman uzunluk >= genislik (Kutu'nun tanımı)
+  if (iz.duz.uzunluk >= iz.duz.genislik) {
+    k.uzunluk = iz.duz.uzunluk;
+    k.genislik = iz.duz.genislik;
+    k.yon = iz.duz.yon;
+  } else {
+    k.uzunluk = iz.duz.genislik;
+    k.genislik = iz.duz.uzunluk;
+    k.yon = yonuDuzelt(iz.duz.yon + PI_F / 2.0f);
+  }
+  return k;
+}
 
 void Takipci::tahminEt(IcIz & iz, double dt) const
 {
@@ -116,6 +186,18 @@ std::vector<Takipci::Iz> Takipci::guncelle(
     IcIz & iz = izler_[i];
     duzelt(iz, kutular[j].cx, kutular[j].cy);
     iz.kutu = kutular[j];
+    kutuyuYumusat(iz, kutular[j], a.kutu_yumusatma);
+    // Hareketli mi? (takip.hpp'deki açıklamaya bakın)
+    if (std::hypot(iz.x(0) - iz.capa_x, iz.x(1) - iz.capa_y) > a.hareket_mesafesi) {
+      iz.hareketli = true;
+      iz.capa_x = iz.x(0);
+      iz.capa_y = iz.x(1);
+      iz.son_hareket = zaman_s;
+    } else if (iz.hareketli && zaman_s - iz.son_hareket > DURMA_SURESI) {
+      iz.hareketli = false;
+      iz.capa_x = iz.x(0);
+      iz.capa_y = iz.x(1);
+    }
     iz.etiketler.push_back(etiketler[j]);
     while (static_cast<int>(iz.etiketler.size()) > a.etiket_gecmisi) {
       iz.etiketler.pop_front();
@@ -150,6 +232,9 @@ std::vector<Takipci::Iz> Takipci::guncelle(
     iz.P(0, 0) = iz.P(1, 1) = OLCUM_GURULTU * OLCUM_GURULTU;
     iz.P(2, 2) = iz.P(3, 3) = ILK_HIZ_BELIRSIZLIGI * ILK_HIZ_BELIRSIZLIGI;
     iz.kutu = kutular[j];
+    iz.duz = kutular[j];
+    iz.capa_x = kutular[j].cx;
+    iz.capa_y = kutular[j].cy;
     iz.etiketler.push_back(etiketler[j]);
     iz.ust_uste_gorulme = 1;
     iz.yas = 1;
@@ -164,8 +249,8 @@ std::vector<Takipci::Iz> Takipci::guncelle(
   std::vector<Iz> sonuc;
   for (const auto & iz : izler_) {
     if (iz.id != 0 && iz.kayip_tur == 0) {
-      sonuc.push_back({iz.id, iz.kutu, cogunluk(iz.etiketler),
-          static_cast<float>(iz.x(2)), static_cast<float>(iz.x(3)), iz.yas});
+      sonuc.push_back({iz.id, ciktiKutusu(iz, a.kutu_yumusatma), cogunluk(iz.etiketler),
+          static_cast<float>(iz.x(2)), static_cast<float>(iz.x(3)), iz.yas, iz.hareketli});
     }
   }
   return sonuc;

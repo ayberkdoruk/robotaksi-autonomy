@@ -12,7 +12,8 @@ from python_qt_binding.QtWidgets import QHBoxLayout, QSplitter, QVBoxLayout, QWi
 from . import tema
 from .ayar_paneli import AyarPaneli
 from .ayar_tanim import ENGEL, NESNE
-from .bilesenler import KararKutusu, NesneTablosu, YelpazeCizimi, etiket, kart
+from .ros_baglanti import ZeminDurumu
+from .bilesenler import KararKutusu, NesneTablosu, YelpazeCizimi, dugme, etiket, kart
 from .yardimci import KARAR_ADLARI, aciyi_anlat, noktanin_acisi
 
 
@@ -44,7 +45,16 @@ class AlgilamaGorunumu(QWidget):
         ust.addStretch()
         self.nesne_ozeti = etiket("", "silik")
         ust.addWidget(self.nesne_ozeti)
+        self.statik_dugme = dugme(
+            "Duranları gizle", isaretlenebilir=True,
+            ipucu="Hiç hareket etmemiş nesneleri (duvar, masa, dolap…) kutulama; sadece hareket "
+                  "edenleri ve uyarı alanındaki duran engelleri göster. DUR / DİKKAT kararını "
+                  "etkilemez. (Ayarlar → Kutulama alanı → 'Duran nesneleri gizle' ile aynı)")
+        ust.addWidget(self.statik_dugme)
         n_duzen.addLayout(ust)
+        self.zemin_satiri = etiket(kaydir=True)
+        self.zemin_satiri.setTextFormat(Qt.RichText)
+        n_duzen.addWidget(self.zemin_satiri)
         self.tablo = NesneTablosu()
         n_duzen.addWidget(self.tablo, 1)
 
@@ -103,12 +113,50 @@ class AlgilamaGorunumu(QWidget):
         if simdi - self._son_tablo > 0.2:
             self._son_tablo = simdi
             self.tablo.guncelle(nesneler)
+            self.zemin_satiri.setText(self._zemin_metni(ros) if nesne_bagli else "")
+            self.zemin_satiri.setVisible(nesne_bagli)
             if not nesne_bagli:
                 self.nesne_ozeti.setText("nesne_node kapalı")
             else:
                 yaya = sum(1 for n in nesneler if n.etiket == "yaya_adayi")
                 alanda = sum(1 for n in nesneler if n.uyari_alaninda)
-                self.nesne_ozeti.setText(f"{len(nesneler)} nesne · {yaya} yaya adayı · {alanda} uyarı alanında")
+                metin = f"{len(nesneler)} nesne · {yaya} yaya adayı · {alanda} uyarı alanında"
+                if d.get("statik_gizle"):
+                    metin += " · duranlar gizli"
+                self.nesne_ozeti.setText(metin)
+        # Düğme paneldeki ayarı gösterir (ayar başka yerden değişirse de)
+        self.statik_dugme.setEnabled(nesne_bagli)
+        if self.statik_dugme.isChecked() != bool(d.get("statik_gizle")):
+            self.statik_dugme.blockSignals(True)
+            self.statik_dugme.setChecked(bool(d.get("statik_gizle")))
+            self.statik_dugme.blockSignals(False)
+
+    @staticmethod
+    def _zemin_metni(ros):
+        """nesne_node'un bulduğu zemin ve beklenenle uyumu (/nesne/zemin_durumu)."""
+        if not ros.zemin_taze():
+            return f"<span style='color:{tema.hex_('soluk')}; font-size:9pt'>Zemin: bilgi bekleniyor…</span>"
+        z = ros.zemin
+        yontem = "otomatik" if z.otomatik else "beklenen yükseklik yakınında"
+        if z.kaynak == ZeminDurumu.VARSAYILAN:
+            return (f"<span style='color:{tema.hex_('uyari')}'>⚠ <b>Zemin bulunamadı</b>; beklenen "
+                    f"yükseklikte ({z.beklenen_yukseklik:+.2f} m) düz zemin varsayılıyor. LiDAR yeri "
+                    "göremiyor olabilir.</span>")
+        olcum = f"<b>{z.yukseklik:+.2f} m</b>, eğim <b>{z.egim:.1f}°</b> ({yontem})"
+        if z.uyumlu:
+            return (f"<span style='color:{tema.hex_('basari')}'>✓</span> "
+                    f"<span style='color:{tema.hex_('soluk')}; font-size:9pt'>Zemin: {olcum}, "
+                    f"beklenenle uyumlu</span>")
+        fark = abs(z.yukseklik - z.beklenen_yukseklik)
+        if fark > z.yukseklik_toleransi:
+            neden = (f"ayarlarda beklenen <b>{z.beklenen_yukseklik:+.2f} m</b> (fark {fark * 100:.0f} cm). "
+                     "LiDAR yerinden oynamış ya da yanlış profil yüklü olabilir. Ölçüm doğruysa "
+                     f"Zemin → 'Beklenen zemin yüksekliği'ni <b>{z.yukseklik:.2f}</b> yapın.")
+        elif z.egim > z.egim_siniri:
+            neden = f"zemin {z.egim_siniri:.1f}°'den eğik. LiDAR yamuk duruyor olabilir."
+        else:
+            neden = "durum değişiyor, birkaç tur bekleyin."
+        return f"<span style='color:{tema.hex_('hata')}'>⚠ Zemin {olcum}: {neden}</span>"
 
     @staticmethod
     def _bolge_metni(d):
@@ -147,6 +195,7 @@ class AlgilamaBolumu(QSplitter):
         self.setStretchFactor(0, 5)
         self.setStretchFactor(1, 6)
         self.panel.degisti.connect(self.guncelle_gorunum)
+        self.gorunum.statik_dugme.toggled.connect(lambda acik: self.panel.deger_ata("statik_gizle", acik))
 
     def guncelle(self):
         self.panel.guncelle()

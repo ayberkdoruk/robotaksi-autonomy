@@ -12,6 +12,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/EngelDurumu.msg"
   "msg/Nesne.msg"
   "msg/NesneDizisi.msg"
+  "msg/ZeminDurumu.msg"
   DEPENDENCIES std_msgs geometry_msgs
 )
 

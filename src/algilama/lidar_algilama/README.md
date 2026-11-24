@@ -33,6 +33,8 @@ Arayüz, ayar paneli ve kayıt/oynatma [`kontrol_merkezi`](../../araclar/kontrol
 
 **`nesne_node` — nesne algılama katmanı**
 - Zemini her turda **RANSAC** ile ölçüp ayırır (sabit bir zemin yüksekliğine güvenmez).
+  Açılışta zemini **kendisi bulur** (LiDAR'ın altındaki en alçak geniş yatay yüzey) ve ayarlardaki
+  beklenen yükseklikle **karşılaştırır**: tutmazsa uyarır (LiDAR oynamış / yanlış profil).
 - Kalan noktaları **kümeleyip** nesnelere ayırır (uzaktaki nesneler için mesafeye göre büyüyen tolerans).
 - Her nesneyi **yönlü 3B kutu** içine alır, LiDAR'a en yakın noktasının **yatay mesafesini** ölçer.
 - Kutunun şekline göre kaba etiket verir: **yaya adayı**, **yapı** (duvar vb.), **engel**.
@@ -104,16 +106,40 @@ flowchart LR
 
 ```
 nokta bulutu → kutulama alanı + gövde kutusu + voxel seyreltme
-             → zemin ayırma (RANSAC, zemin_z ± zemin_bant içinde)
+             → zemin ayırma (RANSAC; açılışta otomatik arama, sonra önceki düzlemin ± zemin_bant'ı)
+             → zemin kontrolü (bulunan zemin zemin_z / egim_uyari ile tutuyor mu → /nesne/zemin_durumu)
              → kümeleme (yatay + mesafeye göre büyüyen dikey tolerans)
              → yönlü kutu + en yakın nokta mesafesi + tepe yüksekliği
              → kaba etiket (yaya_adayi / yapi / engel)
-             → takip (numara, hız, yaklaşma hızı, çarpışma süresi)
+             → takip (numara, hız, yaklaşma hızı, çarpışma süresi, kutu yumuşatma, hareketli mi)
+             → (statik_gizle açıksa) hiç hareket etmemiş nesneler çıkarılır, uyarı alanındakiler kalır
              → /nesne/liste + RViz görselleri
 ```
 
 Algoritmalar ROS'tan bağımsız olarak [`src/nesne/`](src/nesne/) altındadır
 (`zemin`, `kumeleme`, `kutu`, `takip`); ROS tarafı sadece `nesne_node.cpp`'dedir.
+
+#### Zemin nasıl bulunur ve kontrol edilir?
+
+1. **İlk arama (açılışta):** `zemin_otomatik: true` iken ipucu kullanılmaz. LiDAR'ın en az 30 cm altındaki
+   yatay yüzeyler sırayla bulunur (en fazla 5), yeterince geniş olanların (en genişin ≥ %25'i) **en alçağı**
+   zemin seçilir. Masa, tezgâh, kaldırım her zaman zeminin üstünde olduğu için onlara kapılmaz.
+   `zemin_otomatik: false` iken eskisi gibi sadece `zemin_z ± zemin_bant` içinde aranır.
+2. **Takip (sonraki turlar):** sadece bir önceki düzlemin `± zemin_bant` yakınına bakılır. Zemin 2 sn
+   üst üste bulunamazsa ilk arama tekrarlanır; o arada son düzlem kullanılır.
+3. **Kontrol:** bulunan zemin `zemin_z`'den `zemin_tolerans`'tan fazla farklıysa ya da `egim_uyari`'dan
+   eğikse **uyarı** verilir: terminalde, Kontrol Merkezi'nin nesne kartında (kırmızı satır) ve
+   `/nesne/zemin_durumu`'nda (`uyumlu: false`). İşleme yine bulunan zeminle devam edilir; uyarı,
+   ayarların (ör. `engel_node.z_min`) ve profilin gözden geçirilmesi içindir.
+
+```text
+[INFO] Zemin otomatik bulundu: z -0.98 m, egim 0.5 derece (5 yatay yuzeyin en alcagi; beklenen z -0.81)
+[WARN] Zemin -0.98 m'de bulundu ama beklenen -0.81 m (fark 17 cm > 10 cm). LiDAR yerinden oynamis
+       ya da yanlis profil yuklu olabilir. Olcum dogruysa zemin_z'yi -0.98 yapin.
+```
+
+Yani montajdan sonra her seferinde ölçüm yapmak gerekmez: `zemin_z` bir kez (araca takınca) yazılır,
+her açılışta kendiliğinden doğrulanır.
 
 > ⚠️ Etiketler **kural tabanlıdır ve kabadır**. "Yaya adayı" kesin bir yaya kararı değildir;
 > kutunun boyutuna ve tepe yüksekliğine bakılarak verilen bir tahmindir.
@@ -174,7 +200,7 @@ Açılar derece: **0 = ön, +90 = sol, −90 = sağ, 180 = arka**.
 
 ### `nesne_node` — [`config/nesne_params.yaml`](config/nesne_params.yaml)
 
-Varsayılanlar **masa** düzenine göredir (LiDAR masada, zemin ~0.81 m aşağıda).
+Varsayılanlar **masa** düzenine göredir (LiDAR masada, zemin ~0.81 m aşağıda; atölye kaydında ~0.98 m).
 
 <details>
 <summary><b>Tüm parametreleri göster</b></summary>
@@ -186,8 +212,13 @@ Varsayılanlar **masa** düzenine göredir (LiDAR masada, zemin ~0.81 m aşağı
 | | `menzil` | `20.0` | Bundan uzak noktalar işlenmez (yatay, m) |
 | | `govde_x_min` … `govde_y_max` | masa ölçüleri | Gövde kutusu: içindeki noktalar yok sayılır. Hepsi `0.0` = kapalı |
 | | `voxel_boyu` | `0.08` | Nokta seyreltme küp boyu (m). `0.0` = kapalı |
-| Zemin | `zemin_z` | `-0.81` | Beklenen zemin yüksekliği. Araçta: `-montaj_yüksekliği` |
-| | `zemin_bant` | `0.30` | Zemin sadece `zemin_z ± bant` içinde aranır |
+| | `statik_gizle` | `false` | Hiç hareket etmemiş nesneleri yayınlama/çizme (uyarı alanındakiler hariç). Panelde nesne kartındaki **Duranları gizle** düğmesi |
+| | `hareket_mesafesi` | `0.8` | Bundan fazla yer değiştiren nesne "hareketli" sayılır; 5 sn yerinde durursa tekrar "duran" (m) |
+| Zemin | `zemin_otomatik` | `true` | Açılışta zemini ipucusuz bul (en alçak geniş yatay yüzey) |
+| | `zemin_z` | `-0.81` | Beklenen zemin yüksekliği (`-4.0` … `-0.3`). Araçta: `-montaj_yüksekliği`. Otomatikte sadece kontrol için |
+| | `zemin_tolerans` | `0.10` | Kontrol: bulunan zemin `zemin_z`'den en fazla bu kadar farklı olabilir (m) |
+| | `egim_uyari` | `3.0` | Kontrol: bulunan zemin en fazla bu kadar eğik olabilir (°) |
+| | `zemin_bant` | `0.30` | Takipte önceki düzlemin `± bant`'ı aranır (otomatik kapalıysa ilk aramada `zemin_z ± bant`) |
 | | `zemin_esik` | `0.10` | Zemin düzlemine bundan yakın nokta zemin sayılır |
 | | `zemin_max_egim` | `10.0` | Zemin en fazla bu kadar eğik olabilir (°) |
 | | `zemin_min_nokta` | `30` | Zemin düzleminin kabulü için en az nokta |
@@ -202,6 +233,7 @@ Varsayılanlar **masa** düzenine göredir (LiDAR masada, zemin ~0.81 m aşağı
 | Takip | `takip_kapi` | `1.0` | Bir turda en fazla bu kadar yer değiştirebilir (m) |
 | | `takip_dogrulama` | `3` | Yeni nesne bu kadar tur üst üste görülünce numara alır |
 | | `takip_kayip` | `5` | Bu kadar tur görülmeyen nesne silinir |
+| | `kutu_yumusatma` | `0.7` | Kutu titremesini azaltır: merkez Kalman'dan, boyut/yön yavaşça güncellenir. `0` = ham kutu. Mesafe yumuşatılmaz |
 | | `canli_izleme` | `true` | Saniyede bir özet satırı |
 
 </details>
@@ -243,6 +275,7 @@ ros2 param set /nesne_node zemin_z -1.80
 | `/nesne/kumeler` | `sensor_msgs/PointCloud2` | Her nesne ayrı renkte noktalar |
 | `/nesne/zemin` | `sensor_msgs/PointCloud2` | Zemin olarak ayrılan noktalar |
 | `/nesne/zemin_disi` | `sensor_msgs/PointCloud2` | Zemin dışında kalan noktalar |
+| `/nesne/zemin_durumu` | `robotaksi_msgs/ZeminDurumu` | Kullanılan zemin düzlemi (yükseklik, eğim, katsayılar) ve beklenenle uyumu |
 
 ### `robotaksi_msgs/EngelDurumu`
 
@@ -314,7 +347,7 @@ Varsayılan değerler LiDAR masadayken ölçüldü. Araca takarken en az şunlar
 |---|---|---|
 | `engel_node.z_min` | `-0.1` … `-0.6` | `-1.6` civarı (zeminin ~20 cm üstü) |
 | `engel_node.min_mesafe` | `~1.0` | Aracın gövdesi kadar |
-| `nesne_node.zemin_z` | `-0.81` | `-1.80` |
+| `nesne_node.zemin_z` | `-0.81` | `-1.80` (zemin otomatik bulunur; bu değer kontrol içindir, tutmazsa uyarı çıkar) |
 | `nesne_node.govde_*` | masa ölçüleri | Aracın LiDAR'a göre kutusu |
 
 > 💡 `z_min` çok aşağıda kalırsa **zemin engel sanılır** ve sürekli DUR alırsınız. Panelde *Alt sınır (zemin)*
@@ -331,6 +364,7 @@ Panelde **Kaydet…** ile `masa` ve `arac` diye iki profil oluşturup ortam değ
 | RViz'de nokta yok | Ethernet IP'si yanlış veya `lidar_type` hatalı. `ros2 topic hz /rslidar_points` ile kontrol edin |
 | Node'lar veri almıyor / takılıyor | Fast DDS büyük mesaj ayarı eksik. `FASTRTPS_DEFAULT_PROFILES_FILE` değişkenini verin (kök [README → Kurulum](../../../README.md#-kurulum)) |
 | Sürekli DUR | `z_min` zemine çok yakın, ya da `min_mesafe` aracın/masanın kendisini içine alıyor |
+| Duvarlar YAYA?, insanlar ENGEL | Zemin yanlış yerde (ör. masa yüzeyi). Nesne kartındaki zemin satırına / `ros2 topic echo /nesne/zemin_durumu` çıktısına bakın |
 | Küçük cisimler kaçıyor | `min_nokta_sayisi`'nı azaltın |
 | Toz/yağmurda yanlış DUR | `min_nokta_sayisi`'nı artırın (20–30) |
 | Ondalıklı parametrede "tip uyuşmuyor" | YAML'da `90` yerine `90.0` yazın |
@@ -358,4 +392,4 @@ lidar_algilama/
         └── takip.*              #   nesne takibi
 ```
 
-Mesajlar (`EngelDurumu`, `Nesne`, `NesneDizisi`) ortak [`robotaksi_msgs`](../../ortak/robotaksi_msgs/) paketindedir.
+Mesajlar (`EngelDurumu`, `Nesne`, `NesneDizisi`, `ZeminDurumu`) ortak [`robotaksi_msgs`](../../ortak/robotaksi_msgs/) paketindedir.

@@ -5,6 +5,8 @@ uint32 id                          # takip numarasi (nesne kayboldukca yeniden k
 string etiket                      # "yaya_adayi" | "yapi" | "engel"  (kaba, kural tabanli)
 float32 guven                      # 0..1, kural tabanli guven puani
 
+# merkez / boyut / yon takipte yumusatilir (nesne_node kutu_yumusatma); en_yakin_nokta ve
+# mesafe ise her zaman o turun ham olcumudur (guvenlik icin gecikmez).
 geometry_msgs/Point merkez         # kutunun merkezi
 geometry_msgs/Vector3 boyut        # x = uzunluk, y = genislik (uzunluk >= genislik), z = yukseklik
 float32 yon                        # kutunun z ekseni etrafindaki acisi (radyan, uzunluk yonu)
@@ -14,6 +16,8 @@ float32 mesafe                     # en yakin noktanin yatay mesafesi (metre)
 float32 tepe_yuksekligi            # en ust noktanin zemin ustu yuksekligi (metre)
 
 geometry_msgs/Vector3 hiz          # m/s (z = 0)
+bool hareketli                     # son 5 sn icinde hareket_mesafesi'nden fazla yer degistirdi mi
+                                   # (nesne_node). false iken "hiz" sadece olcum gurultusudur.
 float32 yaklasma_hizi              # m/s, pozitif = LiDAR'a yaklasiyor
 float32 carpisma_suresi            # saniye; yaklasmiyorsa -1
 
