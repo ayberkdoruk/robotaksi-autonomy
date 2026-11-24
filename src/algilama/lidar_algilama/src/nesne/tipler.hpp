@@ -9,6 +9,8 @@
 // =============================================================================
 #pragma once
 
+#include <cmath>
+
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
@@ -32,6 +34,30 @@ struct Duzlem
   float yukseklik(const Nokta & p) const {return a * p.x + b * p.y + c * p.z + d;}
   // Düzlemin LiDAR'ın tam altındaki yüksekliği (x = y = 0 iken z)
   float merkezZ() const {return -d / c;}
+};
+
+// LiDAR'ın yere göre konumu ve yönü ("dünya" = node açıldığında LiDAR'ın durduğu yer).
+// Araç düz zeminde gittiği için 2 boyutlu: x, y ve z ekseni etrafında dönüş (yaw).
+// Bir noktanın yüksekliği (z) bu dönüşümde değişmez.
+struct Poz2
+{
+  double x = 0.0, y = 0.0, yaw = 0.0;
+
+  // LiDAR çerçevesindeki (px, py) -> dünya çerçevesi
+  void dunyaya(double px, double py, double & wx, double & wy) const
+  {
+    const double c = std::cos(yaw), s = std::sin(yaw);
+    wx = x + c * px - s * py;
+    wy = y + s * px + c * py;
+  }
+  // Dünya çerçevesindeki (wx, wy) -> LiDAR çerçevesi
+  void lidara(double wx, double wy, double & px, double & py) const
+  {
+    const double c = std::cos(yaw), s = std::sin(yaw);
+    const double dx = wx - x, dy = wy - y;
+    px = c * dx + s * dy;
+    py = -s * dx + c * dy;
+  }
 };
 
 // Bir nesneyi saran, z ekseni etrafında dönük kutu ve ölçümleri

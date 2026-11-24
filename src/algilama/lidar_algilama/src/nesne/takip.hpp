@@ -1,18 +1,18 @@
 // =============================================================================
-// takip.hpp — Nesneleri kareden kareye takip eder: numara ve hız
+// takip.hpp — Nesneleri kareden kareye takip eder: numara, hız, dinamik mi
 //
 // Her turda kümeler yeniden bulunur ve bir önceki turla hiçbir bağları yoktur.
 // Takipçi, "bu turdaki şu kutu, önceki turdaki #12 numaralı nesnedir" eşleştirmesini
 // yapar. Böylece:
 //   - nesne numarası sabit kalır (#12 hep #12)
-//   - konum değişiminden hız hesaplanır
+//   - konum değişiminden hız hesaplanır (Kalman filtresi, sabit hız varsayımı)
 //   - etiket kareden kareye titremez (son turların çoğunluğu kullanılır)
 //   - kutu kareden kareye titremez (merkez Kalman'dan, boyut ve yön yumuşatılarak)
-//   - nesnenin hiç hareket edip etmediği bilinir ("hareketli" bayrağı, aşağıya bakın)
+//   - nesnenin dinamik (hareket eden) olup olmadığına birkaç turun kanıtıyla karar verilir
 //
-// Hız için Kalman filtresi kullanılıyor: ölçülen konum biraz titrer (insan döndükçe
-// görünen yüzü değişir), Kalman bu titremeyi "sabit hızla hareket" varsayımıyla
-// yumuşatır.
+// TAKİP DÜNYA ÇERÇEVESİNDE YAPILIR: kutular takipçiye aracın hareketi (odometri)
+// çıkarılmış olarak, yere göre konumlarıyla verilir. Araç 1 m/s giderken duran bir
+// direk dünyada yerinde durur: hızı ~0 çıkar, kutusu kaymaz ve dönmez.
 //
 // Kutu neden her turda biraz farklı çıkar? Kutu, kümenin o turdaki noktalarından sıfırdan
 // hesaplanır. LiDAR her turda nesnenin biraz farklı noktalarına çarpar, kümenin kenarı
@@ -20,18 +20,11 @@
 // neredeyse aynı alanı verir ve yön turdan tura zıplar. Bu yüzden dışarıya verilen kutu
 // yumuşatılır. MESAFE ve EN YAKIN NOKTA ise yumuşatılmaz: güvenlik için gecikmemeli.
 //
-// "Hareketli" neden hıza bakarak değil de yer değiştirmeye bakarak karar verir? Duran
-// bir nesnenin kümesi yanındakiyle birleşip ayrıldıkça merkezi sıçrar; Kalman hızı o
-// sırada 1 sn'den uzun süre 0.3 m/s'yi aşabiliyor (atölye kaydında ölçüldü). Bu yüzden
-// her izin bir "çapa" noktası var (ilk görüldüğü yer):
-//   - iz çapadan hareket_mesafesi'nden fazla uzaklaşınca hareketli olur, çapa oraya taşınır
-//   - hareketli iz DURMA_SURESI (5 sn) boyunca çapasından uzaklaşmazsa tekrar duran sayılır
-// Birleşme sıçramaları genelde 0.6-0.8 m'de kalıyor; 0.8 m eşik ve 5 sn ile atölye kaydında
-// duran nesnelerin karelerinin %0.6'sı hareketli göründü, yürüyen yayalar 0.5 m yürüdükten
-// sonra en geç 0.5 sn içinde hareketli sayıldı.
-//
-// NOT: LiDAR'ın sabit durduğu varsayılır. Araçta odometri gelince takip, aracın
-// hareketinden arındırılmış bir frame'de (odom) yapılmalı.
+// "Dinamik" kararı küme merkezinin hareketine bakmaz (duran nesnelerin kümeleri birleşip
+// ayrılınca merkez 0.6-0.8 m sıçrar, araç giderken görünen yüz değişince kayar). Kanıt
+// görünürlük testinden gelir (dinamik.hpp): kümenin noktalarının yeterli kısmı, az önce
+// boş görülmüş bir yerde mi? Son 3 eşleşmenin en az 2'sinde kanıt varsa iz dinamik olur;
+// dinamik_tutma süresi boyunca hiç kanıt gelmezse (yaya durdu) tekrar duran sayılır.
 // =============================================================================
 #pragma once
 
@@ -56,8 +49,17 @@ struct TakipAyari
   // Kutu yumuşatma: 0 = kapalı (ham kutu), 0.9 = çok yumuşak (yavaş tepki).
   // Her turda boyut ve yön, ölçüme doğru (1 - kutu_yumusatma) oranında yaklaşır.
   float kutu_yumusatma = 0.7f;
-  // İz çapasından (ilk görüldüğü / son hareket ettiği yer) bundan fazla uzaklaşınca "hareketli" (metre)
-  float hareket_mesafesi = 0.8f;
+  // Dinamik iz bu kadar süre hiç hareket kanıtı vermezse tekrar duran sayılır (saniye)
+  float dinamik_tutma = 3.0f;
+};
+
+// Bir turdaki tek ölçüm (bir küme)
+struct Olcum
+{
+  Kutu kutu;              // cx, cy, yon DÜNYA çerçevesinde; mesafe / en yakın nokta LiDAR'a göre
+  std::string etiket;
+  bool dinamik_kanit = false;  // bu turda kümenin yeterli kısmı boş görülmüş yerde
+  bool yol_uzerinde = false;   // bu turda kümenin noktaları aracın yol koridorunda
 };
 
 class Takipci
@@ -67,17 +69,17 @@ public:
   struct Iz
   {
     uint32_t id;
-    Kutu kutu;
+    Kutu kutu;           // cx, cy, yon DÜNYA çerçevesinde (yumuşatılmış)
     std::string etiket;  // son turların çoğunluğu
-    float vx, vy;        // m/s
+    float vx, vy;        // yere göre hız, dünya eksenlerinde (m/s)
     uint32_t yas;        // kaç turdur takipte
-    bool hareketli;      // son DURMA_SURESI içinde hareket_mesafesi'nden fazla yer değiştirdi mi
+    bool dinamik;        // hareket ediyor (ya da dinamik_tutma süresi içinde etti)
+    bool yol_uzerinde;   // bu turun ölçümü yol koridorunda
   };
 
   // zaman_s: nokta bulutunun zaman damgası (saniye)
-  std::vector<Iz> guncelle(
-    const std::vector<Kutu> & kutular, const std::vector<std::string> & etiketler,
-    double zaman_s, const TakipAyari & a);
+  std::vector<Iz> guncelle(const std::vector<Olcum> & olcumler, double zaman_s,
+    const TakipAyari & a);
 
   void sifirla() {izler_.clear(); son_zaman_ = -1.0;}
 
@@ -85,17 +87,18 @@ private:
   struct IcIz
   {
     uint32_t id = 0;            // 0 = henüz numara almadı (aday)
-    Eigen::Vector4d x;          // durum: [x, y, vx, vy]
+    Eigen::Vector4d x;          // durum: [x, y, vx, vy] (dünya)
     Eigen::Matrix4d P;          // durumun belirsizliği
     Kutu kutu;                  // son ham ölçüm (mesafe, en yakın nokta buradan)
     Kutu duz;                   // yumuşatılmış boyut / yön / yükseklik (uzunluk < genislik olabilir)
     std::deque<std::string> etiketler;
+    std::deque<bool> kanitlar;  // son eşleşmelerin dinamik kanıtı
+    bool yol_uzerinde = false;
     int ust_uste_gorulme = 0;
     int kayip_tur = 0;
     uint32_t yas = 0;
-    double capa_x = 0.0, capa_y = 0.0;  // ilk görüldüğü / son hareket ettiği yer
-    bool hareketli = false;
-    double son_hareket = 0.0;           // son kez çapadan uzaklaştığı an (saniye)
+    bool dinamik = false;
+    double son_kanit = 0.0;     // son dinamik kanıtın zamanı (saniye)
   };
 
   void tahminEt(IcIz & iz, double dt) const;
@@ -103,6 +106,7 @@ private:
   static void kutuyuYumusat(IcIz & iz, const Kutu & olcum, float yumusatma);
   static Kutu ciktiKutusu(const IcIz & iz, float yumusatma);
   static std::string cogunluk(const std::deque<std::string> & etiketler);
+  static void kanitIsle(IcIz & iz, bool kanit, double zaman_s, const TakipAyari & a);
 
   std::vector<IcIz> izler_;
   double son_zaman_ = -1.0;

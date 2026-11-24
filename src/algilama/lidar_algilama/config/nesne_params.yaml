@@ -20,12 +20,32 @@ nesne_node:
     govde_y_min: -0.95
     govde_y_max: 0.9
     voxel_boyu: 0.08        # Nokta seyreltme küp boyu (metre). Hız için; 0.0 = kapalı
-    # Duran nesneleri gizle: hiç hareket etmemiş nesneler /nesne/liste'ye ve RViz'e girmez
-    # (uyarı alanındakiler hariç). Takip arkada sürer, nesne yürümeye başlayınca hemen görünür;
-    # 5 sn yerinde durunca tekrar gizlenir. engel_node'un DUR / DIKKAT kararını etkilemez.
-    statik_gizle: false
-    hareket_mesafesi: 0.8   # Bundan fazla yer değiştiren nesne "hareketli" (metre). Duran nesnelerin
-                            # kümeleri birleşip ayrılınca merkezleri 0.6-0.8 m sıçrayabiliyor
+
+    # --- Neler gösterilsin? ---
+    # true: SADECE hareket eden nesneler (yaya, araç...) ve yol koridorundaki HER şey (duran
+    # engel dahil). Duvar, park etmiş araç gibi duran nesneler arkada takip edilir ama
+    # /nesne/liste'ye ve RViz'e girmez. false: bütün nesneler (hata ayıklama).
+    # engel_node'un DUR / DIKKAT kararını etkilemez.
+    sadece_dinamik: true
+    # Yol koridoru: LiDAR'ın önünde aracın gideceği şerit (düz ileri). Arka sınırı gövde
+    # kutusunun önü (kapalıysa LiDAR). Araç ~1 m/s: 8 m = ~8 sn ileri.
+    koridor_genislik: 2.0   # toplam genişlik: araç genişliği + iki yanda pay (metre)
+    koridor_uzunluk: 8.0    # LiDAR'dan ileri (metre)
+
+    # --- Aracın hareketi ---
+    # Araçta odometri / IMU yok: hareket LiDAR taramalarını üst üste oturtarak bulunur
+    # (/nesne/odometri). false: araç duruyor varsayılır (masada test).
+    lidar_odometri: true
+
+    # --- Hareketli nesne algılama (görünürlük testi) ---
+    # Nokta, şu an bulunduğu yer az önceki taramalarda BOŞ görülmüşse (ışın oradan geçip
+    # arkaya çarpmışsa) hareketlidir. Kümenin yeterli kısmı hareketliyse ve bu son 3 turun
+    # 2'sinde tekrarlanırsa nesne "hareketli" olur.
+    dinamik_bakis_suresi: 1.0  # bu kadar önceye kadarki taramalarla karşılaştır (saniye)
+    dinamik_pay: 0.3           # geçmiş ışın noktanın en az bu kadar arkasına çarpmış olmalı (metre)
+    dinamik_min_nokta: 4       # kümenin en az bu kadar noktası hareketli olmalı
+    dinamik_oran: 0.3          # ... ve en az bu oranı (0-1)
+    dinamik_tutma: 3.0         # bu kadar süre hareket etmeyen nesne tekrar gizlenir (saniye)
 
     # --- 2) Zemin ---
     # Otomatik açıkken zemin açılışta kendisi bulunur (LiDAR'ın altındaki en alçak geniş
@@ -60,7 +80,8 @@ nesne_node:
     yapi_kesin_uzunluk: 6.0 #   ya da 6 m'den uzun her şey
 
     # --- 5) Takip ---
-    takip_kapi: 1.0         # Bir turda en fazla bu kadar yer değiştirebilir (metre)
+    takip_kapi: 1.0         # Bir turda en fazla bu kadar yer değiştirebilir (metre). Takip yere
+                            # göre yapılır: aracın kendi hızı buna eklenmez
     takip_dogrulama: 3      # Yeni nesne 3 tur üst üste görülünce numara alır
     takip_kayip: 5          # 5 tur görülmeyen nesne silinir
     kutu_yumusatma: 0.7     # Kutu titremesini azaltır (0 = kapalı, 0.9 = çok yumuşak).

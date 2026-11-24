@@ -26,8 +26,9 @@ constexpr float PI_F = 3.14159265358979323846f;
 // rahatça izlenir.
 constexpr float MAX_YON_ADIMI = 15.0f * PI_F / 180.0f;
 
-// Hareketli iz bu kadar süre çapasından uzaklaşmazsa tekrar "duran" sayılır (saniye)
-constexpr double DURMA_SURESI = 5.0;
+// Dinamik kararı: son KANIT_PENCERE eşleşmenin en az KANIT_GEREKEN'inde kanıt olmalı
+constexpr size_t KANIT_PENCERE = 3;
+constexpr int KANIT_GEREKEN = 2;
 
 // a - b farkı, kutu 180° simetrik olduğu için (-90°, +90°] aralığında
 float yonFarki(float a, float b)
@@ -139,9 +140,26 @@ std::string Takipci::cogunluk(const std::deque<std::string> & etiketler)
   return en_cok;
 }
 
+void Takipci::kanitIsle(IcIz & iz, bool kanit, double zaman_s, const TakipAyari & a)
+{
+  iz.kanitlar.push_back(kanit);
+  while (iz.kanitlar.size() > KANIT_PENCERE) {
+    iz.kanitlar.pop_front();
+  }
+  const int sayi = static_cast<int>(std::count(iz.kanitlar.begin(), iz.kanitlar.end(), true));
+  if (sayi >= KANIT_GEREKEN) {
+    iz.dinamik = true;
+  }
+  if (kanit) {
+    iz.son_kanit = zaman_s;
+  }
+  if (iz.dinamik && zaman_s - iz.son_kanit > a.dinamik_tutma) {
+    iz.dinamik = false;  // uzun süredir hareket kanıtı yok: durdu
+  }
+}
+
 std::vector<Takipci::Iz> Takipci::guncelle(
-  const std::vector<Kutu> & kutular, const std::vector<std::string> & etiketler,
-  double zaman_s, const TakipAyari & a)
+  const std::vector<Olcum> & olcumler, double zaman_s, const TakipAyari & a)
 {
   // --- 0) Zaman kontrolü ---
   double dt = 0.0;
@@ -164,9 +182,9 @@ std::vector<Takipci::Iz> Takipci::guncelle(
   // --- 2) Eşleştirme: en yakın çiftten başlayarak (açgözlü) ---
   std::vector<std::tuple<double, size_t, size_t>> ciftler;  // (mesafe, iz, kutu)
   for (size_t i = 0; i < izler_.size(); ++i) {
-    for (size_t j = 0; j < kutular.size(); ++j) {
-      const double dx = kutular[j].cx - izler_[i].x(0);
-      const double dy = kutular[j].cy - izler_[i].x(1);
+    for (size_t j = 0; j < olcumler.size(); ++j) {
+      const double dx = olcumler[j].kutu.cx - izler_[i].x(0);
+      const double dy = olcumler[j].kutu.cy - izler_[i].x(1);
       const double m = std::sqrt(dx * dx + dy * dy);
       if (m <= a.kapi) {
         ciftler.emplace_back(m, i, j);
@@ -175,7 +193,7 @@ std::vector<Takipci::Iz> Takipci::guncelle(
   }
   std::sort(ciftler.begin(), ciftler.end());
   std::vector<bool> iz_eslesti(izler_.size(), false);
-  std::vector<bool> kutu_eslesti(kutular.size(), false);
+  std::vector<bool> kutu_eslesti(olcumler.size(), false);
 
   for (const auto & [m, i, j] : ciftler) {
     if (iz_eslesti[i] || kutu_eslesti[j]) {
@@ -184,21 +202,13 @@ std::vector<Takipci::Iz> Takipci::guncelle(
     iz_eslesti[i] = true;
     kutu_eslesti[j] = true;
     IcIz & iz = izler_[i];
-    duzelt(iz, kutular[j].cx, kutular[j].cy);
-    iz.kutu = kutular[j];
-    kutuyuYumusat(iz, kutular[j], a.kutu_yumusatma);
-    // Hareketli mi? (takip.hpp'deki açıklamaya bakın)
-    if (std::hypot(iz.x(0) - iz.capa_x, iz.x(1) - iz.capa_y) > a.hareket_mesafesi) {
-      iz.hareketli = true;
-      iz.capa_x = iz.x(0);
-      iz.capa_y = iz.x(1);
-      iz.son_hareket = zaman_s;
-    } else if (iz.hareketli && zaman_s - iz.son_hareket > DURMA_SURESI) {
-      iz.hareketli = false;
-      iz.capa_x = iz.x(0);
-      iz.capa_y = iz.x(1);
-    }
-    iz.etiketler.push_back(etiketler[j]);
+    const Olcum & o = olcumler[j];
+    duzelt(iz, o.kutu.cx, o.kutu.cy);
+    iz.kutu = o.kutu;
+    kutuyuYumusat(iz, o.kutu, a.kutu_yumusatma);
+    kanitIsle(iz, o.dinamik_kanit, zaman_s, a);
+    iz.yol_uzerinde = o.yol_uzerinde;
+    iz.etiketler.push_back(o.etiket);
     while (static_cast<int>(iz.etiketler.size()) > a.etiket_gecmisi) {
       iz.etiketler.pop_front();
     }
@@ -222,20 +232,21 @@ std::vector<Takipci::Iz> Takipci::guncelle(
     }), izler_.end());
 
   // --- 4) Eşleşmeyen kutular: yeni aday iz ---
-  for (size_t j = 0; j < kutular.size(); ++j) {
+  for (size_t j = 0; j < olcumler.size(); ++j) {
     if (kutu_eslesti[j]) {
       continue;
     }
+    const Olcum & o = olcumler[j];
     IcIz iz;
-    iz.x << kutular[j].cx, kutular[j].cy, 0.0, 0.0;
+    iz.x << o.kutu.cx, o.kutu.cy, 0.0, 0.0;
     iz.P = Eigen::Matrix4d::Zero();
     iz.P(0, 0) = iz.P(1, 1) = OLCUM_GURULTU * OLCUM_GURULTU;
     iz.P(2, 2) = iz.P(3, 3) = ILK_HIZ_BELIRSIZLIGI * ILK_HIZ_BELIRSIZLIGI;
-    iz.kutu = kutular[j];
-    iz.duz = kutular[j];
-    iz.capa_x = kutular[j].cx;
-    iz.capa_y = kutular[j].cy;
-    iz.etiketler.push_back(etiketler[j]);
+    iz.kutu = o.kutu;
+    iz.duz = o.kutu;
+    iz.etiketler.push_back(o.etiket);
+    kanitIsle(iz, o.dinamik_kanit, zaman_s, a);
+    iz.yol_uzerinde = o.yol_uzerinde;
     iz.ust_uste_gorulme = 1;
     iz.yas = 1;
     if (a.dogrulama <= 1) {
@@ -250,7 +261,8 @@ std::vector<Takipci::Iz> Takipci::guncelle(
   for (const auto & iz : izler_) {
     if (iz.id != 0 && iz.kayip_tur == 0) {
       sonuc.push_back({iz.id, ciktiKutusu(iz, a.kutu_yumusatma), cogunluk(iz.etiketler),
-          static_cast<float>(iz.x(2)), static_cast<float>(iz.x(3)), iz.yas, iz.hareketli});
+          static_cast<float>(iz.x(2)), static_cast<float>(iz.x(3)), iz.yas, iz.dinamik,
+          iz.yol_uzerinde});
     }
   }
   return sonuc;

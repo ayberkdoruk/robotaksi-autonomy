@@ -4,7 +4,7 @@
   <!-- Paketin adı: colcon ve ros2 komutlarında bu isimle çağrılır -->
   <name>lidar_algilama</name>
   <version>0.1.0</version>
-  <description>RoboSense Helios 32 nokta bulutundan sektör tabanlı engel algılama (DUR / DIKKAT / GUVENLI) ve nesne algılama (kutu, mesafe, etiket, takip)</description>
+  <description>RoboSense Helios 32 nokta bulutundan sektör tabanlı engel algılama (DUR / DIKKAT / GUVENLI) ve nesne algılama (LiDAR odometri, hareketli nesne + yol koridoru, kutu, mesafe, etiket, takip)</description>
   <maintainer email="ayberk@todo.todo">ayberk</maintainer>
   <license>Apache-2.0</license>
 
@@ -18,6 +18,7 @@
   <depend>visualization_msgs</depend>
   <depend>rcl_interfaces</depend>
   <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
 
   <!-- nesne_node için: nokta bulutu işleme (PCL) ve ortak mesajlar -->
   <depend>libpcl-all-dev</depend>

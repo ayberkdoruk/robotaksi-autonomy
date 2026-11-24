@@ -46,10 +46,10 @@ class AlgilamaGorunumu(QWidget):
         self.nesne_ozeti = etiket("", "silik")
         ust.addWidget(self.nesne_ozeti)
         self.statik_dugme = dugme(
-            "Duranları gizle", isaretlenebilir=True,
-            ipucu="Hiç hareket etmemiş nesneleri (duvar, masa, dolap…) kutulama; sadece hareket "
-                  "edenleri ve uyarı alanındaki duran engelleri göster. DUR / DİKKAT kararını "
-                  "etkilemez. (Ayarlar → Kutulama alanı → 'Duran nesneleri gizle' ile aynı)")
+            "Sadece hareketliler", isaretlenebilir=True,
+            ipucu="Sadece hareket eden nesneleri (yaya, araç) ve yol koridorundaki nesneleri "
+                  "(duran engel dahil) göster; duvar, masa gibi duranları gizle. DUR / DİKKAT "
+                  "kararını etkilemez. (Ayarlar → Hareket → 'Sadece hareketliler + yol koridoru')")
         ust.addWidget(self.statik_dugme)
         n_duzen.addLayout(ust)
         self.zemin_satiri = etiket(kaydir=True)
@@ -118,17 +118,17 @@ class AlgilamaGorunumu(QWidget):
             if not nesne_bagli:
                 self.nesne_ozeti.setText("nesne_node kapalı")
             else:
-                yaya = sum(1 for n in nesneler if n.etiket == "yaya_adayi")
-                alanda = sum(1 for n in nesneler if n.uyari_alaninda)
-                metin = f"{len(nesneler)} nesne · {yaya} yaya adayı · {alanda} uyarı alanında"
-                if d.get("statik_gizle"):
+                hareketli = sum(1 for n in nesneler if n.hareketli)
+                yolda = sum(1 for n in nesneler if n.yol_uzerinde)
+                metin = f"{len(nesneler)} nesne · {hareketli} hareketli · {yolda} yol üstünde"
+                if d.get("sadece_dinamik"):
                     metin += " · duranlar gizli"
                 self.nesne_ozeti.setText(metin)
         # Düğme paneldeki ayarı gösterir (ayar başka yerden değişirse de)
         self.statik_dugme.setEnabled(nesne_bagli)
-        if self.statik_dugme.isChecked() != bool(d.get("statik_gizle")):
+        if self.statik_dugme.isChecked() != bool(d.get("sadece_dinamik")):
             self.statik_dugme.blockSignals(True)
-            self.statik_dugme.setChecked(bool(d.get("statik_gizle")))
+            self.statik_dugme.setChecked(bool(d.get("sadece_dinamik")))
             self.statik_dugme.blockSignals(False)
 
     @staticmethod
@@ -195,7 +195,7 @@ class AlgilamaBolumu(QSplitter):
         self.setStretchFactor(0, 5)
         self.setStretchFactor(1, 6)
         self.panel.degisti.connect(self.guncelle_gorunum)
-        self.gorunum.statik_dugme.toggled.connect(lambda acik: self.panel.deger_ata("statik_gizle", acik))
+        self.gorunum.statik_dugme.toggled.connect(lambda acik: self.panel.deger_ata("sadece_dinamik", acik))
 
     def guncelle(self):
         self.panel.guncelle()

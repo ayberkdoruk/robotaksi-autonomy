@@ -82,6 +82,11 @@ SEKMELER = [
     ("kutulama", "Kutulama alanı", NESNE,
      "nesne_node'un nesneleri kutu içine aldığı alan. Uyarı yelpazesinden bağımsızdır "
      "(çizimde mavi kesik çizgi). Gövde kutusu, aracın kendi gövdesini yok saydırır."),
+    ("dinamik", "Hareket", NESNE,
+     "Sadece hareket eden nesneler (yaya, araç) ve aracın önündeki yol koridorunda kalan her şey "
+     "gösterilir; duvar, park etmiş araç gibi duran nesneler gizlenir. Bir noktanın şu anki yeri "
+     "az önceki taramalarda BOŞ görülmüşse (ışın oradan geçip arkaya çarpmışsa) o nokta "
+     "hareketlidir. Araç giderken kendi hareketi LiDAR taramalarından bulunup çıkarılır."),
     ("zemin", "Zemin", NESNE,
      "Zemin her turda yeniden ölçülüp ayrılır. 'Otomatik zemin bulma' açıkken açılışta kendisi "
      "bulunur; 'Beklenen zemin yüksekliği' (LiDAR'ın yerden yüksekliğinin eksilisi, 1.80 m → "
@@ -150,16 +155,35 @@ AYARLAR = [
       "Gövde kutusunun sağ sınırı (y; sağ taraf eksidir).", "kutulama"),
     A("govde_y_max", NESNE, "Gövde kutusu: sol sınır", "m", -10.0, 10.0, 0.05, 0.0,
       "Gövde kutusunun sol sınırı (y).", "kutulama"),
-    A("statik_gizle", NESNE, "Duran nesneleri gizle", "", 0, 1, 1, False,
-      "Açıkken hiç hareket etmemiş nesneler (duvar, masa, dolap…) kutulanmaz ve listede görünmez; "
-      "sadece hareket eden nesneler (yayalar) ve uyarı alanının içindeki duran engeller gösterilir. "
-      "Takip arkada sürer: duran bir nesne yürümeye başlarsa hemen görünür; 5 sn yerinde duran "
-      "nesne tekrar gizlenir. DUR / DİKKAT kararını (engel_node) etkilemez.",
-      "kutulama", "mantik"),
-    A("hareket_mesafesi", NESNE, "Hareketli sayılma mesafesi", "m", 0.2, 3.0, 0.05, 0.8,
-      "Nesne bundan fazla yer değiştirince hareketli sayılır (5 sn yerinde durursa tekrar duran). "
-      "Duran nesneler yanlışlıkla görünüyorsa büyütün, yayalar geç görünüyorsa küçültün.",
-      "kutulama"),
+
+    A("sadece_dinamik", NESNE, "Sadece hareketliler + yol koridoru", "", 0, 1, 1, True,
+      "Açıkken sadece hareket eden nesneler ve yol koridorundaki nesneler (duran engel dahil) "
+      "kutulanır ve listede görünür. Kapalıyken bütün nesneler (hata ayıklama için). DUR / DİKKAT "
+      "kararını (engel_node) etkilemez.", "dinamik", "mantik"),
+    A("koridor_genislik", NESNE, "Yol koridoru genişliği", "m", 0.5, 10.0, 0.1, 2.0,
+      "Aracın önündeki şeridin toplam genişliği (araç + iki yanda pay). Koridordaki her nesne, "
+      "dursa bile gösterilir (çizimde ve RViz'de yeşil dikdörtgen).", "dinamik"),
+    A("koridor_uzunluk", NESNE, "Yol koridoru uzunluğu", "m", 1.0, 50.0, 0.5, 8.0,
+      "Koridor LiDAR'ın önünde bu kadar ileri uzanır. Araç ~1 m/s giderken 8 m ≈ 8 saniye.",
+      "dinamik"),
+    A("lidar_odometri", NESNE, "Aracın hareketini LiDAR'dan bul", "", 0, 1, 1, True,
+      "Açıkken aracın kendi hareketi taramalar üst üste oturtularak bulunur ve çıkarılır; araç "
+      "giderken duran nesneler hareketli sanılmaz. Kapalıyken araç duruyor varsayılır (masa "
+      "testi).", "dinamik", "mantik"),
+    A("dinamik_bakis_suresi", NESNE, "Karşılaştırma süresi", "s", 0.3, 3.0, 0.1, 1.0,
+      "Noktalar bu kadar önceye kadarki taramalarla karşılaştırılır. Büyütmek yavaş yürüyenleri "
+      "yakalar ama araç dönerken yanlış alarm artabilir.", "dinamik"),
+    A("dinamik_pay", NESNE, "Boşluk payı", "m", 0.05, 2.0, 0.05, 0.3,
+      "Geçmiş ışın, noktanın en az bu kadar arkasına çarpmış olmalı. Duran nesneler hareketli "
+      "görünüyorsa büyütün.", "dinamik"),
+    A("dinamik_min_nokta", NESNE, "Hareketli nokta: en az", "nokta", 1, 100, 1, 4,
+      "Bir nesnenin hareketli sayılması için en az bu kadar noktası hareketli olmalı.",
+      "dinamik", "tam"),
+    A("dinamik_oran", NESNE, "Hareketli nokta: en az oran", "", 0.05, 1.0, 0.05, 0.3,
+      "... ve noktalarının en az bu oranı (0.3 = %30) hareketli olmalı.", "dinamik"),
+    A("dinamik_tutma", NESNE, "Durunca gizleme süresi", "s", 0.0, 30.0, 0.5, 3.0,
+      "Hareketli nesne bu kadar süre hiç hareket etmezse tekrar duran sayılır ve gizlenir (yol "
+      "koridorundaysa görünmeye devam eder).", "dinamik"),
 
     A("zemin_otomatik", NESNE, "Otomatik zemin bulma", "", 0, 1, 1, True,
       "Açıkken zemin açılışta ipucusuz aranır: LiDAR'ın altındaki en alçak geniş yatay yüzey "
@@ -215,8 +239,9 @@ AYARLAR = [
       "Bundan uzun her şey kalınlığına bakılmadan yapı sayılır.", "etiket"),
 
     A("takip_kapi", NESNE, "Bir turda en fazla yer değiştirme", "m", 0.1, 5.0, 0.05, 1.0,
-      "Bir nesne iki tur arasında bundan fazla yer değiştirirse aynı nesne sayılmaz. Hızlı "
-      "nesneleri kaybediyorsanız büyütün.", "takip"),
+      "Bir nesne iki tur arasında bundan fazla yer değiştirirse aynı nesne sayılmaz. Takip yere "
+      "göre yapılır, aracın kendi hızı buna eklenmez. Hızlı nesneleri kaybediyorsanız büyütün.",
+      "takip"),
     A("kutu_yumusatma", NESNE, "Kutu yumuşatma", "", 0.0, 0.95, 0.05, 0.7,
       "Kutunun kareden kareye titremesini azaltır: merkez takipten, boyut ve yön yavaşça "
       "güncellenir. 0 = kapalı (ham kutu), 0.9 = çok yumuşak (değişime geç tepki). Mesafe ve en "

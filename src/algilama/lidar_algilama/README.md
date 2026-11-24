@@ -38,7 +38,12 @@ Arayüz, ayar paneli ve kayıt/oynatma [`kontrol_merkezi`](../../araclar/kontrol
 - Kalan noktaları **kümeleyip** nesnelere ayırır (uzaktaki nesneler için mesafeye göre büyüyen tolerans).
 - Her nesneyi **yönlü 3B kutu** içine alır, LiDAR'a en yakın noktasının **yatay mesafesini** ölçer.
 - Kutunun şekline göre kaba etiket verir: **yaya adayı**, **yapı** (duvar vb.), **engel**.
-- Nesneleri kareden kareye **takip eder**: numara, hız, yaklaşma hızı ve çarpışma süresi.
+- **Sadece hareket eden nesneleri** (yaya, araç) ve aracın önündeki **yol koridorundaki** her şeyi
+  (duran engel dahil) gösterir; duvar, park etmiş araç gibi duranları gizler.
+- Araç giderken kendi hareketini **LiDAR taramalarından** bulur (odometri/IMU gerekmez) ve çıkarır:
+  araç 1 m/s giderken duran nesneler hareketli sanılmaz, kutular kaymaz.
+- Nesneleri kareden kareye **yere göre takip eder**: numara, hız, araca göre yaklaşma hızı ve
+  çarpışma süresi.
 - Sonuçları `/nesne/liste` topic'inde yayınlar — başka node'lar (ör. kamera füzyonu) doğrudan okuyabilir.
 
 > **Not:** Hiçbir node LiDAR'ın kendisine veya sürücüsüne ayar göndermez. Sadece sürücünün
@@ -84,8 +89,8 @@ flowchart LR
 
     E -->|/engel/durum<br/>EngelDurumu| P[ayar_paneli<br/>kontrol_merkezi]
     E -->|/engel/gorsel<br/>/engel/filtrelenmis_noktalar| R[RViz]
-    N -->|/nesne/gorsel<br/>/nesne/kumeler<br/>/nesne/zemin| R
-    N -->|/nesne/liste<br/>NesneDizisi| F[Başka node'lar<br/>ör. kamera füzyonu]
+    N -->|/nesne/gorsel<br/>/nesne/kumeler<br/>/nesne/dinamik_noktalar| R
+    N -->|/nesne/liste<br/>NesneDizisi<br/>/nesne/odometri| F[Başka node'lar<br/>ör. kamera füzyonu]
 
     P -.->|parametre ayarı| E
     P -.->|kutulama alanı| N
@@ -108,16 +113,63 @@ flowchart LR
 nokta bulutu → kutulama alanı + gövde kutusu + voxel seyreltme
              → zemin ayırma (RANSAC; açılışta otomatik arama, sonra önceki düzlemin ± zemin_bant'ı)
              → zemin kontrolü (bulunan zemin zemin_z / egim_uyari ile tutuyor mu → /nesne/zemin_durumu)
-             → kümeleme (yatay + mesafeye göre büyüyen dikey tolerans)
-             → yönlü kutu + en yakın nokta mesafesi + tepe yüksekliği
+             → aracın hareketi: LiDAR odometri (2B ICP, her yöndeki duvar/direk/ağaç) → /nesne/odometri
+             → hareketli noktalar: şu anki yeri 0.3 / 0.7 / 1.0 sn önce BOŞ görülmüş mü? (görünürlük testi)
+             → kümeleme (yatay + mesafeye göre büyüyen dikey tolerans); duvara yapışık yaya ayrılır
+             → yönlü kutu + en yakın nokta mesafesi + tepe yüksekliği + yol koridorunda mı
              → kaba etiket (yaya_adayi / yapi / engel)
-             → takip (numara, hız, yaklaşma hızı, çarpışma süresi, kutu yumuşatma, hareketli mi)
-             → (statik_gizle açıksa) hiç hareket etmemiş nesneler çıkarılır, uyarı alanındakiler kalır
+             → takip YERE GÖRE (numara, hız, kutu yumuşatma, son 3 turun 2'sinde kanıt → hareketli)
+             → (sadece_dinamik açıksa) sadece hareketliler + yol koridorundakiler kalır
+             → araca göre yaklaşma hızı ve çarpışma süresi
              → /nesne/liste + RViz görselleri
 ```
 
 Algoritmalar ROS'tan bağımsız olarak [`src/nesne/`](src/nesne/) altındadır
-(`zemin`, `kumeleme`, `kutu`, `takip`); ROS tarafı sadece `nesne_node.cpp`'dedir.
+(`zemin`, `odometri`, `dinamik`, `kumeleme`, `kutu`, `takip`); ROS tarafı sadece `nesne_node.cpp`'dedir.
+
+#### Hareketli nesne nasıl ayırt edilir?
+
+LiDAR ışını bir yere çarpıp döner; **ışının geçtiği yol boştur**. Bir noktanın şu anki yeri az önceki
+taramada boş görülmüşse (o yöne giden ışın noktanın çok arkasından dönmüşse), oradaki cisim oraya
+sonradan gelmiştir:
+
+```text
+1 sn önce:   LiDAR ----------------------------> duvar    (ışın boşluktan geçti)
+şimdi:       LiDAR ----------> yaya                        (aynı yerde artık yaya var → hareketli)
+```
+
+- Duran cisimler bu testi geçemez: o yöne giden ışın ya cismin kendisine ya da önündeki bir şeye
+  çarpmıştır. Eski yöntem küme merkezinin kaymasına bakıyordu; duran nesnelerin kümeleri birleşip
+  ayrılınca merkez 0.6–0.8 m sıçradığı için duvarlar/masalar "hareketli" görünüyor, kutular titriyordu.
+- Her nokta 3 geçmiş taramayla karşılaştırılır (`dinamik_bakis_suresi`'nin 1/3'ü, 2/3'ü ve kendisi kadar
+  önce). Kümenin en az `dinamik_min_nokta` noktası ve `dinamik_oran` oranı hareketliyse o tur için
+  kanıt var; **son 3 turun 2'sinde** kanıt olunca nesne hareketli olur. `dinamik_tutma` (3 sn) boyunca
+  hiç kanıt gelmezse (yaya durdu) tekrar gizlenir.
+- Yaya duvarın / park etmiş aracın dibinden geçip onunla tek kümede birleşirse, hareketli noktaları
+  ayrı kümelenip kendi kutusunu alır.
+- **Sınır:** LiDAR'dan doğrudan **uzaklaşan** bir nesne bu testle yakalanmaz (yeni yeri, eski halinin
+  arkasında kalır). Aracın önünde giden biri yine de yol koridorunda olduğu için gösterilir.
+
+#### Aracın hareketi (LiDAR odometri)
+
+Araç 1 m/s giderken LiDAR'a göre duran her şey geriye kayıyormuş gibi görünür. Araçta tekerlek
+sayacı / IMU olmadığı için hareket taramaların kendisinden bulunur: zeminden yüksek noktalar (duvar,
+direk, ağaç, araç) bir "anahtar tarama" ile üst üste oturtulur (2B ICP; düz yüzeylerde noktadan
+çizgiye, köşelerde noktadan noktaya; hareket eden noktalar sağlam ağırlıkla bastırılır). Sonuç
+`/nesne/odometri`'de (`nav_msgs/Odometry`, frame `lidar_odom`) yayınlanır. Eşleştirme başarısızsa o tur
+sabit hız varsayılır ve hareketli nokta testi **yapılmaz** (yanlış alarm vermesin); terminalde
+`(TAHMIN)` yazar. Masada test ederken `lidar_odometri: false` ile kapatılabilir.
+
+Takip de **yere göre** yapılır: duran bir direğin hızı ~0, kutusu araç dönerken bile dönmez.
+Yaklaşma hızı ve çarpışma süresi ise **araca göre**dir: araç 1 m/s giderken önündeki duran engel
+1 m/s yaklaşır.
+
+#### Yol koridoru
+
+LiDAR'ın önünde, `koridor_genislik` genişliğinde ve `koridor_uzunluk` uzunluğunda (gövde kutusunun
+önünden başlayan) bir şerit. İçinde en az 2 noktası olan **her** nesne, dursa da gösterilir
+(`yol_uzerinde: true`, RViz'de kalın kutu + dolgu, yeşil dikdörtgen koridorun kendisi). Şimdilik düz
+ileri; direksiyon açısı gelince eğilebilir.
 
 #### Zemin nasıl bulunur ve kontrol edilir?
 
@@ -212,8 +264,14 @@ Varsayılanlar **masa** düzenine göredir (LiDAR masada, zemin ~0.81 m aşağı
 | | `menzil` | `20.0` | Bundan uzak noktalar işlenmez (yatay, m) |
 | | `govde_x_min` … `govde_y_max` | masa ölçüleri | Gövde kutusu: içindeki noktalar yok sayılır. Hepsi `0.0` = kapalı |
 | | `voxel_boyu` | `0.08` | Nokta seyreltme küp boyu (m). `0.0` = kapalı |
-| | `statik_gizle` | `false` | Hiç hareket etmemiş nesneleri yayınlama/çizme (uyarı alanındakiler hariç). Panelde nesne kartındaki **Duranları gizle** düğmesi |
-| | `hareket_mesafesi` | `0.8` | Bundan fazla yer değiştiren nesne "hareketli" sayılır; 5 sn yerinde durursa tekrar "duran" (m) |
+| Hareket | `sadece_dinamik` | `true` | Sadece hareketliler + yol koridorundakiler yayınlanır. Panelde nesne kartındaki **Sadece hareketliler** düğmesi |
+| | `koridor_genislik` | `2.0` | Yol koridorunun toplam genişliği (araç + pay, m) |
+| | `koridor_uzunluk` | `8.0` | Yol koridoru LiDAR'dan bu kadar ileri (m) |
+| | `lidar_odometri` | `true` | Aracın hareketini taramalardan bul. `false` = araç duruyor varsay |
+| | `dinamik_bakis_suresi` | `1.0` | Bu kadar önceye kadarki taramalarla karşılaştır (s) |
+| | `dinamik_pay` | `0.3` | Geçmiş ışın noktanın en az bu kadar arkasına çarpmış olmalı (m) |
+| | `dinamik_min_nokta` / `dinamik_oran` | `4` / `0.3` | Kümenin en az bu kadar / bu oranda noktası hareketli olmalı |
+| | `dinamik_tutma` | `3.0` | Bu kadar süre hareket etmeyen nesne tekrar gizlenir (s) |
 | Zemin | `zemin_otomatik` | `true` | Açılışta zemini ipucusuz bul (en alçak geniş yatay yüzey) |
 | | `zemin_z` | `-0.81` | Beklenen zemin yüksekliği (`-4.0` … `-0.3`). Araçta: `-montaj_yüksekliği`. Otomatikte sadece kontrol için |
 | | `zemin_tolerans` | `0.10` | Kontrol: bulunan zemin `zemin_z`'den en fazla bu kadar farklı olabilir (m) |
@@ -230,7 +288,7 @@ Varsayılanlar **masa** düzenine göredir (LiDAR masada, zemin ~0.81 m aşağı
 | | `yaya_max_uzunluk` / `yaya_max_genislik` | `1.2` / `1.0` | …ve taban en fazla bu boyutta |
 | | `yapi_min_uzunluk` / `yapi_max_genislik` | `2.5` / `0.5` | Yapı: uzun ve ince |
 | | `yapi_kesin_uzunluk` | `6.0` | …ya da bundan uzun her şey |
-| Takip | `takip_kapi` | `1.0` | Bir turda en fazla bu kadar yer değiştirebilir (m) |
+| Takip | `takip_kapi` | `1.0` | Bir turda en fazla bu kadar yer değiştirebilir (m, yere göre) |
 | | `takip_dogrulama` | `3` | Yeni nesne bu kadar tur üst üste görülünce numara alır |
 | | `takip_kayip` | `5` | Bu kadar tur görülmeyen nesne silinir |
 | | `kutu_yumusatma` | `0.7` | Kutu titremesini azaltır: merkez Kalman'dan, boyut/yön yavaşça güncellenir. `0` = ham kutu. Mesafe yumuşatılmaz |
@@ -270,7 +328,9 @@ ros2 param set /nesne_node zemin_z -1.80
 
 | Topic | Tip | Açıklama |
 |---|---|---|
-| `/nesne/liste` | `robotaksi_msgs/NesneDizisi` | Takip edilen tüm nesneler |
+| `/nesne/liste` | `robotaksi_msgs/NesneDizisi` | Hareketli ve yol koridorundaki nesneler (`sadece_dinamik: false` ise hepsi) |
+| `/nesne/odometri` | `nav_msgs/Odometry` | Aracın (LiDAR'ın) yere göre konumu ve hızı; frame `lidar_odom` |
+| `/nesne/dinamik_noktalar` | `sensor_msgs/PointCloud2` | Hareketli bulunan noktalar (ayar yaparken RViz'de "Hareketli noktalar") |
 | `/nesne/gorsel` | `visualization_msgs/MarkerArray` | Kutular, numara/etiket/mesafe yazıları, hız okları |
 | `/nesne/kumeler` | `sensor_msgs/PointCloud2` | Her nesne ayrı renkte noktalar |
 | `/nesne/zemin` | `sensor_msgs/PointCloud2` | Zemin olarak ayrılan noktalar |
@@ -318,10 +378,12 @@ geometry_msgs/Point en_yakin_nokta # LiDAR'a en yakın nokta
 float32 mesafe                     # en yakın noktanın yatay mesafesi (m)
 float32 tepe_yuksekligi            # en üst noktanın zemin üstü yüksekliği (m)
 
-geometry_msgs/Vector3 hiz          # m/s
-float32 yaklasma_hizi              # m/s, pozitif = LiDAR'a yaklaşıyor
+geometry_msgs/Vector3 hiz          # YERE göre hız (m/s); hareketli olmayanlarda 0
+bool hareketli                     # hareket ediyor (ya da son dinamik_tutma sn içinde etti)
+float32 yaklasma_hizi              # m/s, ARACA göre, pozitif = yaklaşıyor
 float32 carpisma_suresi            # saniye; yaklaşmıyorsa -1
 
+bool yol_uzerinde                  # aracın önündeki yol koridorunda mı
 bool uyari_alaninda                # engel_node'un uyarı yelpazesinin içinde mi
 uint32 nokta_sayisi
 uint32 yas                         # kaç turdur takipte
@@ -349,6 +411,8 @@ Varsayılan değerler LiDAR masadayken ölçüldü. Araca takarken en az şunlar
 | `engel_node.min_mesafe` | `~1.0` | Aracın gövdesi kadar |
 | `nesne_node.zemin_z` | `-0.81` | `-1.80` (zemin otomatik bulunur; bu değer kontrol içindir, tutmazsa uyarı çıkar) |
 | `nesne_node.govde_*` | masa ölçüleri | Aracın LiDAR'a göre kutusu |
+| `nesne_node.koridor_genislik` | `2.0` | Araç genişliği + iki yanda ~0.3 m pay |
+| `nesne_node.nesne_gorus_genisligi` | `120` | Yandan karşıya geçen yayalar için geniş tutun (180–360) |
 
 > 💡 `z_min` çok aşağıda kalırsa **zemin engel sanılır** ve sürekli DUR alırsınız. Panelde *Alt sınır (zemin)*
 > çubuğunu, RViz'de zemin noktaları kaybolana kadar yukarı alın.
@@ -364,6 +428,8 @@ Panelde **Kaydet…** ile `masa` ve `arac` diye iki profil oluşturup ortam değ
 | RViz'de nokta yok | Ethernet IP'si yanlış veya `lidar_type` hatalı. `ros2 topic hz /rslidar_points` ile kontrol edin |
 | Node'lar veri almıyor / takılıyor | Fast DDS büyük mesaj ayarı eksik. `FASTRTPS_DEFAULT_PROFILES_FILE` değişkenini verin (kök [README → Kurulum](../../../README.md#-kurulum)) |
 | Sürekli DUR | `z_min` zemine çok yakın, ya da `min_mesafe` aracın/masanın kendisini içine alıyor |
+| Duran nesneler "hareketli" görünüyor | RViz'de "Hareketli noktalar"ı açın. Araç giderken çoksa terminalde `(TAHMIN)` var mı bakın (odometri tutmuyor). Az ise `dinamik_pay`'ı büyütün (0.5) ya da `dinamik_oran`'ı artırın |
+| Yayalar geç görünüyor / hiç görünmüyor | `dinamik_oran`'ı (0.2) ya da `dinamik_min_nokta`'yı azaltın; LiDAR'dan doğrudan uzaklaşan yaya yakalanmaz (bkz. "Hareketli nesne nasıl ayırt edilir?") |
 | Duvarlar YAYA?, insanlar ENGEL | Zemin yanlış yerde (ör. masa yüzeyi). Nesne kartındaki zemin satırına / `ros2 topic echo /nesne/zemin_durumu` çıktısına bakın |
 | Küçük cisimler kaçıyor | `min_nokta_sayisi`'nı azaltın |
 | Toz/yağmurda yanlış DUR | `min_nokta_sayisi`'nı artırın (20–30) |
@@ -387,6 +453,8 @@ lidar_algilama/
     ├── nesne_node.cpp           # nesne algılamanın ROS tarafı
     └── nesne/                   # ROS'tan bağımsız algoritmalar
         ├── zemin.*              #   RANSAC zemin ayırma
+        ├── odometri.*           #   aracın hareketi (2B ICP)
+        ├── dinamik.*            #   hareketli nokta testi (görünürlük)
         ├── kumeleme.*           #   nokta kümeleme
         ├── kutu.*               #   yönlü kutu + etiket
         └── takip.*              #   nesne takibi

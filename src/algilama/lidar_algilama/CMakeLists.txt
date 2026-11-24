@@ -18,6 +18,7 @@ find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 # nesne_node için: nokta bulutu işleme kütüphanesi ve kendi mesajlarımız
 # NOT: PCL derlenirken "CMP0144 / FLANN_ROOT" uyarısı verir; PCL'in kendi dosyasından gelir, zararsızdır.
 find_package(PCL REQUIRED COMPONENTS common filters kdtree search sample_consensus segmentation)
@@ -38,11 +39,13 @@ ament_target_dependencies(engel_node
   robotaksi_msgs
 )
 
-# nesne_node: zemin ayırma + kümeleme + kutu + etiket + takip
+# nesne_node: zemin ayırma + odometri + dinamik nokta testi + kümeleme + kutu + etiket + takip
 # Algoritmalar src/nesne/ altında (ROS'tan bağımsız), ROS tarafı nesne_node.cpp'de.
 add_executable(nesne_node
   src/nesne_node.cpp
   src/nesne/zemin.cpp
+  src/nesne/odometri.cpp
+  src/nesne/dinamik.cpp
   src/nesne/kumeleme.cpp
   src/nesne/kutu.cpp
   src/nesne/takip.cpp
@@ -62,6 +65,7 @@ ament_target_dependencies(nesne_node
   visualization_msgs
   rcl_interfaces
   geometry_msgs
+  nav_msgs
   pcl_conversions
   robotaksi_msgs
 )

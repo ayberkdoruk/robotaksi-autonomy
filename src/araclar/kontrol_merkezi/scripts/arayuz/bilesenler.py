@@ -406,6 +406,16 @@ class YelpazeCizimi(QWidget):
             p.setBrush(QBrush(tema.renk("cizim_yazi", 45), Qt.BDiagPattern))
             p.drawRect(govde)
 
+        # Yol koridoru (nesne_node): içindeki her nesne gösterilir
+        if "koridor_uzunluk" in a:
+            govde_acik = a["govde_x_max"] > a["govde_x_min"] and a["govde_y_max"] > a["govde_y_min"]
+            x0 = max(0.0, a["govde_x_max"]) if govde_acik else 0.0
+            yari = a["koridor_genislik"] / 2.0
+            koridor = QRectF(ekran(a["koridor_uzunluk"], yari), ekran(x0, -yari)).normalized()
+            p.setPen(QPen(tema.renk("basari", 200), 1.5, Qt.DashLine))
+            p.setBrush(QBrush(tema.renk("basari", 22)))
+            p.drawRect(koridor)
+
         # Nesne kutuları (nesne_node)
         for n in self.nesneler:
             renk = tema.renk({"yaya_adayi": "yaya", "yapi": "yapi"}.get(n.etiket, "engel"))
@@ -415,7 +425,7 @@ class YelpazeCizimi(QWidget):
             for dl, dw in ((L / 2, W / 2), (L / 2, -W / 2), (-L / 2, -W / 2), (-L / 2, W / 2)):
                 koseler.append(ekran(n.merkez.x + dl * cosy - dw * siny, n.merkez.y + dl * siny + dw * cosy))
             renk_dolgu = tema.renk(renk.name(), 60)
-            p.setPen(QPen(renk, 2.2 if n.uyari_alaninda else 1.3))
+            p.setPen(QPen(renk, 2.4 if n.yol_uzerinde else 1.3))
             p.setBrush(renk_dolgu)
             p.drawPolygon(QPolygonF(koseler))
             p.setPen(renk)
@@ -459,7 +469,7 @@ class YelpazeCizimi(QWidget):
 # Nesne tablosu (nesne_node'un /nesne/liste çıktısı)
 # -----------------------------------------------------------------------------
 class NesneTablosu(QTableWidget):
-    SUTUNLAR = ["#", "Etiket", "Mesafe", "Yön", "Hız", "Yaklaşma", "Çarpışma", "Uyarı alanı"]
+    SUTUNLAR = ["#", "Etiket", "Mesafe", "Yön", "Hız", "Yaklaşma", "Çarpışma", "Konum"]
 
     def __init__(self):
         super().__init__(0, len(self.SUTUNLAR))
@@ -475,8 +485,9 @@ class NesneTablosu(QTableWidget):
         b.setSectionResizeMode(QHeaderView.ResizeToContents)
         b.setSectionResizeMode(1, QHeaderView.Stretch)
         b.setHighlightSections(False)
-        self.setToolTip("Çarpışma: nesne aynı hızla yaklaşmaya devam ederse kaç saniye sonra "
-                        "LiDAR'a ulaşır. Uyarı alanı: en yakın noktası engel yelpazesinin içinde mi.")
+        self.setToolTip("Hız: nesnenin yere göre hızı (aracın hareketi çıkarılmış). Yaklaşma ve "
+                        "çarpışma: ARACA göre; araç giderken önündeki duran engel de yaklaşır. "
+                        "Konum: yol koridorunda mı, engel yelpazesinin içinde mi.")
 
     def _hucre(self, satir, sutun, metin, renk_adi=None, kalin=False):
         oge = self.item(satir, sutun)
@@ -502,11 +513,17 @@ class NesneTablosu(QTableWidget):
             self._hucre(i, 1, ETIKET_ADLARI.get(n.etiket, n.etiket), renk, True)
             self._hucre(i, 2, f"{n.mesafe:.2f} m", None, True)
             self._hucre(i, 3, aciyi_anlat(noktanin_acisi(n.en_yakin_nokta.x, n.en_yakin_nokta.y)))
-            self._hucre(i, 4, f"{hiz:.1f} m/s" if hiz >= 0.3 else "duruyor", None if hiz >= 0.3 else "silik")
+            self._hucre(i, 4, f"{hiz:.1f} m/s" if hiz >= 0.3 else ("yürüyor" if n.hareketli else "duruyor"),
+                        None if (hiz >= 0.3 or n.hareketli) else "silik")
             self._hucre(i, 5, f"{n.yaklasma_hizi:+.1f} m/s" if abs(n.yaklasma_hizi) >= 0.1 else "—",
                         "uyari" if n.yaklasma_hizi > 0.3 else "soluk")
             self._hucre(i, 6, f"{t:.1f} s" if t >= 0 else "—", t_renk, t_renk is not None)
-            self._hucre(i, 7, "● içinde" if n.uyari_alaninda else "", "dikkat" if n.uyari_alaninda else None)
+            if n.yol_uzerinde:
+                self._hucre(i, 7, "● yol üstünde", "hata", True)
+            elif n.uyari_alaninda:
+                self._hucre(i, 7, "● uyarı alanı", "dikkat")
+            else:
+                self._hucre(i, 7, "")
 
 
 # -----------------------------------------------------------------------------

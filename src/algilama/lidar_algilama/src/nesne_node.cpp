@@ -2,8 +2,14 @@
 // nesne_node.cpp
 //
 // LiDAR nokta bulutundan (/rslidar_points) nesneleri bulur:
-//   zemin ayırma -> kümeleme -> dönük kutu + mesafe -> kaba etiket -> takip
+//   zemin ayırma -> aracın hareketi (LiDAR odometri) -> dinamik nokta testi
+//   -> kümeleme -> dönük kutu + mesafe -> kaba etiket -> takip (dünya çerçevesinde)
 // ve sonuçları /nesne/liste (robotaksi_msgs/NesneDizisi) ile RViz'e yayınlar.
+//
+// Varsayılan olarak (sadece_dinamik) SADECE şunlar yayınlanır:
+//   - hareket eden nesneler (yaya, araç, bisiklet...) — görünürlük testiyle (dinamik.hpp)
+//   - aracın önündeki yol koridorunda kalan HER şey (duran engel dahil)
+// Duvar, park etmiş araç, ağaç gibi duran nesneler arkada takip edilir ama gösterilmez.
 //
 // engel_node'dan (DUR / DIKKAT / GUVENLI) tamamen bağımsızdır, onun yanında çalışır.
 // Sadece engel_node'un uyarı yelpazesi ayarlarını OKUR (hangi nesne yelpazenin
@@ -30,6 +36,7 @@
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "rcl_interfaces/msg/parameter_event.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "std_msgs/msg/color_rgba.hpp"
@@ -40,8 +47,10 @@
 #include "robotaksi_msgs/msg/nesne_dizisi.hpp"
 #include "robotaksi_msgs/msg/zemin_durumu.hpp"
 
+#include "nesne/dinamik.hpp"
 #include "nesne/kumeleme.hpp"
 #include "nesne/kutu.hpp"
+#include "nesne/odometri.hpp"
 #include "nesne/takip.hpp"
 #include "nesne/tipler.hpp"
 #include "nesne/zemin.hpp"
@@ -52,8 +61,17 @@ namespace
 constexpr double PI = 3.14159265358979323846;
 constexpr double DERECE_RADYAN = PI / 180.0;
 
-// Hareket etmiş (takip "hareketli" dedi) ve bundan hızlı nesnenin hızı yazılır, oku çizilir
+// Dinamik ve bundan hızlı nesnenin hızı yazılır, oku çizilir
 constexpr double HAREKET_ESIGI = 0.3;  // m/s
+
+// Dinamik testi ve odometri için tüm bulut bu menzile kadar kullanılır (kutulama
+// alanından bağımsız: arkadaki duvarlar da aracın hareketini bulmaya yarar)
+constexpr double TUM_MENZIL = 60.0;      // m
+constexpr double ODOMETRI_MENZIL = 40.0; // m
+constexpr double ODOMETRI_VOXEL = 0.3;   // m
+constexpr double ODOMETRI_MIN_YUKSEKLIK = 0.3;  // m: zeminden bu kadar yukarısı (zemin hizalamaya yaramaz)
+// Yol koridorunda sayılmak için kümenin en az bu kadar noktası koridorda olmalı
+constexpr int KORIDOR_MIN_NOKTA = 2;
 
 // -----------------------------------------------------------------------------
 // Tüm ayarlar tek yapıda. Parametre değişince önce KOPYA üzerinde kontrol edilir.
@@ -82,10 +100,15 @@ struct Ayarlar
     yaya_max_genislik = 1.0, yapi_min_uzunluk = 2.5, yapi_max_genislik = 0.5,
     yapi_kesin_uzunluk = 6.0;
   // Takip
-  double takip_kapi = 1.0, kutu_yumusatma = 0.7, hareket_mesafesi = 0.8;
-  // Hiç hareket etmemiş nesneleri (uyarı alanındakiler hariç) yayınlama / çizme
-  bool statik_gizle = false;
+  double takip_kapi = 1.0, kutu_yumusatma = 0.7;
   int takip_dogrulama = 3, takip_kayip = 5;
+  // Dinamik algılama
+  bool sadece_dinamik = true;   // sadece dinamik + yol koridorundaki nesneleri yayınla
+  bool lidar_odometri = true;   // aracın hareketini taramalardan bul (false: araç duruyor varsay)
+  double dinamik_bakis_suresi = 1.0, dinamik_pay = 0.3, dinamik_oran = 0.3, dinamik_tutma = 3.0;
+  int dinamik_min_nokta = 4;
+  // Yol koridoru: LiDAR'ın önünde, aracın gideceği şerit
+  double koridor_genislik = 2.0, koridor_uzunluk = 8.0;
   // Diğer
   bool canli_izleme = true;
 
@@ -128,12 +151,25 @@ struct Ayarlar
     nesne::TakipAyari t;
     t.kapi = static_cast<float>(takip_kapi);
     t.kutu_yumusatma = static_cast<float>(kutu_yumusatma);
-    t.hareket_mesafesi = static_cast<float>(hareket_mesafesi);
+    t.dinamik_tutma = static_cast<float>(dinamik_tutma);
     t.dogrulama = takip_dogrulama;
     t.kayip = takip_kayip;
     return t;
   }
+  nesne::DinamikAyari dinamik() const
+  {
+    nesne::DinamikAyari d;
+    d.bakis_suresi = static_cast<float>(dinamik_bakis_suresi);
+    d.pay = static_cast<float>(dinamik_pay);
+    return d;
+  }
   bool govdeAcik() const {return govde_x_max > govde_x_min && govde_y_max > govde_y_min;}
+  // Yol koridorunun arka sınırı: gövde kutusu açıksa aracın önü, değilse LiDAR
+  double koridorBasi() const {return govdeAcik() ? std::max(0.0, govde_x_max) : 0.0;}
+  bool koridorda(double x, double y) const
+  {
+    return x >= koridorBasi() && x <= koridor_uzunluk && std::fabs(y) <= koridor_genislik / 2.0;
+  }
 };
 
 // Parametre tabloları: ad, Ayarlar içindeki alan, varsayılan, aralık, açıklama.
@@ -200,9 +236,21 @@ const OndalikTanim ONDALIKLAR[] = {
     "Takip: tahmin ile kutu arasi en fazla bu kadar olabilir (metre)"},
   {"kutu_yumusatma", &Ayarlar::kutu_yumusatma, 0.0, 0.95,
     "Kutu titremesini azaltir: 0 = kapali (ham kutu), 0.9 = cok yumusak. Mesafe yumusatilmaz"},
-  {"hareket_mesafesi", &Ayarlar::hareket_mesafesi, 0.2, 3.0,
-    "Nesne ilk goruldugu / son hareket ettigi yerden bundan fazla uzaklasinca hareketli sayilir; "
-    "5 sn yerinde durursa tekrar duran sayilir (metre)"},
+  {"koridor_genislik", &Ayarlar::koridor_genislik, 0.5, 10.0,
+    "Yol koridorunun toplam genisligi (arac + iki yanda pay). Koridordaki her nesne (duran "
+    "dahil) her zaman yayinlanir (metre)"},
+  {"koridor_uzunluk", &Ayarlar::koridor_uzunluk, 1.0, 50.0,
+    "Yol koridoru LiDAR'in onunde bu kadar ileri uzanir (metre)"},
+  {"dinamik_bakis_suresi", &Ayarlar::dinamik_bakis_suresi, 0.3, 3.0,
+    "Nokta, bu kadar onceye kadarki taramalarla karsilastirilir; o zaman bos gorulmus yerdeyse "
+    "hareketli sayilir (saniye). Buyutmek yavas nesneleri yakalar, hizli donuste hata artar"},
+  {"dinamik_pay", &Ayarlar::dinamik_pay, 0.05, 2.0,
+    "Gecmis isin noktanin en az bu kadar arkasindan donmus olmali (metre). Duran nesneler "
+    "hareketli gorunuyorsa buyutun"},
+  {"dinamik_oran", &Ayarlar::dinamik_oran, 0.05, 1.0,
+    "Kumenin en az bu orandaki noktasi hareketli olmali (0-1)"},
+  {"dinamik_tutma", &Ayarlar::dinamik_tutma, 0.0, 30.0,
+    "Hareketli nesne bu kadar sure hareket etmezse tekrar duran sayilir ve gizlenir (saniye)"},
 };
 
 struct TamsayiTanim
@@ -221,6 +269,8 @@ const TamsayiTanim TAMSAYILAR[] = {
   {"takip_dogrulama", &Ayarlar::takip_dogrulama, 1, 20,
     "Yeni nesne bu kadar tur ust uste gorulunce numara alir"},
   {"takip_kayip", &Ayarlar::takip_kayip, 1, 50, "Nesne bu kadar tur gorulmezse silinir"},
+  {"dinamik_min_nokta", &Ayarlar::dinamik_min_nokta, 1, 100,
+    "Kumenin en az bu kadar noktasi hareketli olmali"},
 };
 
 // Ayarlar birbiriyle mantıklı mı? Sorun yoksa boş metin, varsa sebebi.
@@ -294,6 +344,8 @@ public:
     zemin_disi_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("/nesne/zemin_disi", 10);
     zemin_durumu_pub_ =
       create_publisher<robotaksi_msgs::msg::ZeminDurumu>("/nesne/zemin_durumu", 10);
+    dinamik_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("/nesne/dinamik_noktalar", 10);
+    odometri_pub_ = create_publisher<nav_msgs::msg::Odometry>("/nesne/odometri", 10);
 
     nokta_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       "/rslidar_points", rclcpp::SensorDataQoS(),
@@ -329,6 +381,7 @@ public:
     const nesne::Bulut bos;
     zemin_pub_->publish(bulutMesaji(bos, son_header_));
     zemin_disi_pub_->publish(bulutMesaji(bos, son_header_));
+    dinamik_pub_->publish(bulutMesaji(bos, son_header_));
     kume_pub_->publish(kumeBulutu(bos, {}, son_header_));
 
     // Süreç hemen kapanacak; mesajlar RViz'e ulaşmadan yok olmasın
@@ -369,12 +422,17 @@ private:
       "zemin_z sadece kontrol icin kullanilir. false: zemin sadece zemin_z +- zemin_bant icinde aranir";
     ayarlar_.zemin_otomatik = declare_parameter<bool>("zemin_otomatik", true, otomatik);
 
-    rcl_interfaces::msg::ParameterDescriptor statik;
-    statik.description =
-      "true: hic hareket etmemis nesneler /nesne/liste'de ve RViz'de gosterilmez (uyari "
-      "alanindakiler haric). Takip arkada surer; nesne hareket edince hemen gorunur, "
-      "5 sn yerinde durunca tekrar gizlenir";
-    ayarlar_.statik_gizle = declare_parameter<bool>("statik_gizle", false, statik);
+    rcl_interfaces::msg::ParameterDescriptor dinamik;
+    dinamik.description =
+      "true: sadece hareket eden nesneler ve yol koridorundaki nesneler (duran dahil) "
+      "/nesne/liste'de ve RViz'de gosterilir. false: butun nesneler";
+    ayarlar_.sadece_dinamik = declare_parameter<bool>("sadece_dinamik", true, dinamik);
+
+    rcl_interfaces::msg::ParameterDescriptor odometri;
+    odometri.description =
+      "true: aracin hareketi LiDAR taramalarindan bulunur (/nesne/odometri). false: arac "
+      "duruyor varsayilir (masa testi)";
+    ayarlar_.lidar_odometri = declare_parameter<bool>("lidar_odometri", true, odometri);
 
     rcl_interfaces::msg::ParameterDescriptor canli;
     canli.description = "Saniyede bir ozet satiri yaz (nesne sayisi, en yakin, islem suresi)";
@@ -402,7 +460,8 @@ private:
       }
       if (ad == "canli_izleme") {yeni.canli_izleme = p.as_bool();}
       if (ad == "zemin_otomatik") {yeni.zemin_otomatik = p.as_bool();}
-      if (ad == "statik_gizle") {yeni.statik_gizle = p.as_bool();}
+      if (ad == "sadece_dinamik") {yeni.sadece_dinamik = p.as_bool();}
+      if (ad == "lidar_odometri") {yeni.lidar_odometri = p.as_bool();}
     }
     const std::string hata = ayarlariKontrolEt(yeni);
     if (!hata.empty()) {
@@ -417,6 +476,12 @@ private:
       (!yeni.zemin_otomatik && yeni.zemin_z != ayarlar_.zemin_z))
     {
       zemin_.sifirla();
+    }
+    // Odometri açılıp kapanınca konum geçmişi kopar
+    if (yeni.lidar_odometri != ayarlar_.lidar_odometri) {
+      odometri_.sifirla();
+      dinamik_.sifirla();
+      takipci_.sifirla();
     }
     ayarlar_ = yeni;
     sonuc.successful = true;
@@ -495,11 +560,17 @@ private:
 
     const auto baslangic = std::chrono::steady_clock::now();
     const Ayarlar a = ayarlar_;
+    const double zaman = rclcpp::Time(msg->header.stamp).seconds();
 
-    // --- 1) Ön filtre: NaN, menzil, gövde kutusu ---
+    // --- 1) Ön filtre ---
+    //   filtreli: kutulama alanı + menzil + gövde dışı (nesneler bunun içinde aranır)
+    //   tum     : her yön, TUM_MENZIL'e kadar, gövde dışı (odometri ve dinamik testi için)
     nesne::Bulut::Ptr filtreli(new nesne::Bulut);
+    nesne::Bulut::Ptr tum(new nesne::Bulut);
     filtreli->reserve(msg->width * msg->height);
+    tum->reserve(msg->width * msg->height);
     const double menzil_kare = a.menzil * a.menzil;
+    const double tum_kare = TUM_MENZIL * TUM_MENZIL;
     const bool govde = a.govdeAcik();
     // Kutulama alanı testi (engel_node'daki yelpaze testiyle aynı fikir):
     // nokta ile bakış yönü arasındaki açı yarı genişlikten küçükse içeride.
@@ -516,10 +587,7 @@ private:
         continue;
       }
       const double r_kare = static_cast<double>(x) * x + static_cast<double>(y) * y;
-      if (r_kare > menzil_kare) {
-        continue;
-      }
-      if (!tam_daire && x * yon_x + y * yon_y < std::sqrt(r_kare) * cos_yari) {
+      if (r_kare > tum_kare) {
         continue;
       }
       if (govde && x >= a.govde_x_min && x <= a.govde_x_max &&
@@ -527,45 +595,92 @@ private:
       {
         continue;
       }
+      tum->push_back(nesne::Nokta(x, y, z));
+      if (r_kare > menzil_kare) {
+        continue;
+      }
+      if (!tam_daire && x * yon_x + y * yon_y < std::sqrt(r_kare) * cos_yari) {
+        continue;
+      }
       filtreli->push_back(nesne::Nokta(x, y, z));
     }
     const size_t giris_sayisi = filtreli->size();
 
     // --- 2) Seyreltme: her voxel_boyu küpünde tek nokta kalsın ---
-    nesne::Bulut::Ptr seyrek = filtreli;
-    if (a.voxel_boyu > 0.0 && !filtreli->empty()) {
-      seyrek.reset(new nesne::Bulut);
-      pcl::VoxelGrid<nesne::Nokta> voxel;
-      voxel.setInputCloud(filtreli);
-      const float v = static_cast<float>(a.voxel_boyu);
-      voxel.setLeafSize(v, v, v);
-      voxel.filter(*seyrek);
-    }
+    const nesne::Bulut::Ptr seyrek = seyrelt(filtreli, a.voxel_boyu);
 
     // --- 3) Zemin ayırma ---
     const auto zemin_sonuc = zemin_.ayir(*seyrek, a.zemin());
     zeminiKontrolEt(msg->header, zemin_sonuc, a);
 
-    // --- 4) Kümeleme ---
-    const auto kumeler = nesne::kumele(zemin_sonuc.nesne, a.kume());
+    // --- 4) Aracın hareketi (LiDAR odometri) ---
+    nesne::OdometriSonucu odom;
+    if (a.lidar_odometri) {
+      odom = odometri_.guncelle(*odometriBulutu(*tum), zaman);
+    } else {
+      // Araç duruyor varsayımı: konum hep sıfır. Zaman atlarsa yine geçmişi kopar.
+      odom.gecerli = true;
+      odom.sifirlandi = son_zaman_ < 0.0 || zaman <= son_zaman_ || zaman - son_zaman_ > 1.0;
+    }
+    son_zaman_ = zaman;
+    if (odom.sifirlandi) {
+      takipci_.sifirla();
+      dinamik_.sifirla();
+    }
+    odometriYayinla(msg->header, odom);
 
-    // --- 5) Kutu + etiket ---
+    // --- 5) Dinamik noktalar: şu an bulundukları yer az önce boş muydu? ---
+    // Odometri bu tur başarısızsa karşılaştırma yapılmaz (yanlış alarm vermesin).
+    const nesne::DinamikAyari dinamik_ayari = a.dinamik();
+    std::vector<uint8_t> dinamik_isaret;
+    int karsilastirilan = 0;
+    if (odom.gecerli) {
+      karsilastirilan = dinamik_.isaretle(*zemin_sonuc.nesne, odom.poz, zaman, dinamik_ayari,
+        dinamik_isaret);
+    } else {
+      dinamik_isaret.assign(zemin_sonuc.nesne->size(), 0);
+    }
+    dinamik_.ekle(*tum, odom.poz, zaman, odom.gecerli, dinamik_ayari);
+
+    // --- 6) Kümeleme + hareketli noktaları büyük kümelerden ayırma ---
+    std::vector<std::vector<int>> kumeler = nesne::kumele(zemin_sonuc.nesne, a.kume());
+    std::vector<bool> kume_kanit;
+    dinamikleriAyir(*zemin_sonuc.nesne, dinamik_isaret, a, kumeler, kume_kanit);
+
+    // --- 7) Kutu + etiket + koridor; takip için dünya çerçevesine ---
     const nesne::EtiketAyari etiket_ayari = a.etiket();
-    std::vector<nesne::Kutu> kutular;
-    std::vector<std::string> etiketler;
-    kutular.reserve(kumeler.size());
-    etiketler.reserve(kumeler.size());
-    for (const auto & kume : kumeler) {
-      kutular.push_back(nesne::kutuHesapla(*zemin_sonuc.nesne, kume, zemin_.duzlem()));
-      etiketler.push_back(nesne::etiketVer(kutular.back(), etiket_ayari));
+    std::vector<nesne::Olcum> olcumler;
+    olcumler.reserve(kumeler.size());
+    for (size_t i = 0; i < kumeler.size(); ++i) {
+      nesne::Olcum o;
+      o.kutu = nesne::kutuHesapla(*zemin_sonuc.nesne, kumeler[i], zemin_.duzlem());
+      o.etiket = nesne::etiketVer(o.kutu, etiket_ayari);
+      o.dinamik_kanit = kume_kanit[i];
+      int koridorda = 0;
+      for (int j : kumeler[i]) {
+        const auto & p = (*zemin_sonuc.nesne)[j];
+        if (a.koridorda(p.x, p.y) && ++koridorda >= KORIDOR_MIN_NOKTA) {
+          break;
+        }
+      }
+      o.yol_uzerinde = koridorda >= KORIDOR_MIN_NOKTA;
+      kutuyuDunyaya(o.kutu, odom.poz);
+      olcumler.push_back(std::move(o));
     }
 
-    // --- 6) Takip ---
-    const double zaman = rclcpp::Time(msg->header.stamp).seconds();
-    const auto izler = takipci_.guncelle(kutular, etiketler, zaman, a.takip());
+    // --- 8) Takip (dünya çerçevesinde), sonra kutular tekrar LiDAR çerçevesine ---
+    auto izler = takipci_.guncelle(olcumler, zaman, a.takip());
+    for (auto & iz : izler) {
+      kutuyuLidara(iz.kutu, odom.poz);
+      // Hız: dünya eksenlerinden LiDAR eksenlerine
+      const double c = std::cos(odom.poz.yaw), s = std::sin(odom.poz.yaw);
+      const double vx = c * iz.vx + s * iz.vy, vy = -s * iz.vx + c * iz.vy;
+      iz.vx = static_cast<float>(vx);
+      iz.vy = static_cast<float>(vy);
+    }
 
-    // --- 7) Yayınla ---
-    const auto liste = listeOlustur(msg->header, izler, a);
+    // --- 9) Yayınla ---
+    const auto liste = listeOlustur(msg->header, izler, odom, a);
     const size_t gizlenen = izler.size() - liste.nesneler.size();
     liste_pub_->publish(liste);
 
@@ -581,31 +696,211 @@ private:
     if (kume_pub_->get_subscription_count() > 0) {
       kume_pub_->publish(kumeBulutu(*zemin_sonuc.nesne, kumeler, msg->header));
     }
+    size_t dinamik_nokta = 0;
+    for (uint8_t d : dinamik_isaret) {dinamik_nokta += d;}
+    if (dinamik_pub_->get_subscription_count() > 0) {
+      nesne::Bulut dn;
+      dn.reserve(dinamik_nokta);
+      for (size_t i = 0; i < dinamik_isaret.size(); ++i) {
+        if (dinamik_isaret[i]) {dn.push_back((*zemin_sonuc.nesne)[i]);}
+      }
+      dinamik_pub_->publish(bulutMesaji(dn, msg->header));
+    }
 
-    // --- 8) Terminal özeti (saniyede bir) ---
+    // --- 10) Terminal özeti (saniyede bir) ---
     const double sure_ms = std::chrono::duration<double, std::milli>(
       std::chrono::steady_clock::now() - baslangic).count();
     if (a.canli_izleme) {
-      int yaya = 0;
+      int dinamik = 0, yolda = 0;
       const robotaksi_msgs::msg::Nesne * en_yakin = nullptr;
       for (const auto & n : liste.nesneler) {
-        if (n.etiket == nesne::ETIKET_YAYA) {++yaya;}
-        if (!en_yakin || n.mesafe < en_yakin->mesafe) {en_yakin = &n;}
+        if (n.hareketli) {++dinamik;}
+        if (n.yol_uzerinde) {
+          ++yolda;
+          if (!en_yakin || n.mesafe < en_yakin->mesafe) {en_yakin = &n;}
+        }
       }
       char yakin_metin[96] = "yok";
       if (en_yakin) {
         std::snprintf(yakin_metin, sizeof(yakin_metin), "#%u %s %.2f m",
           en_yakin->id, en_yakin->etiket.c_str(), en_yakin->mesafe);
       }
+      char arac_metin[64];
+      if (a.lidar_odometri) {
+        std::snprintf(arac_metin, sizeof(arac_metin), "%.2f m/s %+.0f d/s%s",
+          std::hypot(odom.vx, odom.vy), odom.wz / DERECE_RADYAN, odom.gecerli ? "" : " (TAHMIN)");
+      } else {
+        std::snprintf(arac_metin, sizeof(arac_metin), "duruyor varsayildi");
+      }
       const auto & d = zemin_.duzlem();
       RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-        "[NESNE] nokta %zu->%zu | zemin %zu, nesne %zu | kume %zu | iz %zu (yaya %d, gizli %zu) | "
-        "en yakin: %s | zemin z %.2f egim %.1f (%s, %s) | %.1f ms",
-        giris_sayisi, seyrek->size(), zemin_sonuc.zemin->size(), zemin_sonuc.nesne->size(),
-        kumeler.size(), liste.nesneler.size(), yaya, gizlenen, yakin_metin, d.merkezZ(),
-        egimDerece(d), kaynakAdi(zemin_sonuc.kaynak), zemin_uyumlu_ ? "uyumlu" : "UYUMSUZ",
-        sure_ms);
+        "[NESNE] arac %s | nokta %zu->%zu, dinamik %zu (%d gecmis) | kume %zu | iz %zu: "
+        "hareketli %d, yolda %d, gizli %zu | yoldaki en yakin: %s | zemin z %.2f (%s, %s) | %.1f ms",
+        arac_metin, giris_sayisi, seyrek->size(), dinamik_nokta, karsilastirilan, kumeler.size(),
+        izler.size(), dinamik, yolda, gizlenen, yakin_metin, d.merkezZ(),
+        kaynakAdi(zemin_sonuc.kaynak), zemin_uyumlu_ ? "uyumlu" : "UYUMSUZ", sure_ms);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Yardımcılar: seyreltme, odometri bulutu, çerçeve dönüşümleri
+  // ---------------------------------------------------------------------------
+  static nesne::Bulut::Ptr seyrelt(const nesne::Bulut::Ptr & girdi, double boy)
+  {
+    if (boy <= 0.0 || girdi->empty()) {
+      return girdi;
+    }
+    nesne::Bulut::Ptr cikti(new nesne::Bulut);
+    pcl::VoxelGrid<nesne::Nokta> voxel;
+    voxel.setInputCloud(girdi);
+    const float v = static_cast<float>(boy);
+    voxel.setLeafSize(v, v, v);
+    voxel.filter(*cikti);
+    return cikti;
+  }
+
+  // Odometri için: zeminden yüksek (duvar, direk, ağaç...), ODOMETRI_MENZIL içindeki,
+  // seyreltilmiş noktalar. Zemin noktaları yatay hizalamaya yaramaz.
+  nesne::Bulut::Ptr odometriBulutu(const nesne::Bulut & tum) const
+  {
+    const nesne::Duzlem & d = zemin_.duzlem();
+    nesne::Bulut::Ptr secilen(new nesne::Bulut);
+    secilen->reserve(tum.size());
+    const double menzil_kare = ODOMETRI_MENZIL * ODOMETRI_MENZIL;
+    for (const auto & p : tum) {
+      if (static_cast<double>(p.x) * p.x + static_cast<double>(p.y) * p.y > menzil_kare) {
+        continue;
+      }
+      if (d.yukseklik(p) < ODOMETRI_MIN_YUKSEKLIK) {
+        continue;
+      }
+      secilen->push_back(p);
+    }
+    return seyrelt(secilen, ODOMETRI_VOXEL);
+  }
+
+  static float yonDuzelt(double a)
+  {
+    while (a > PI / 2.0) {a -= PI;}
+    while (a <= -PI / 2.0) {a += PI;}
+    return static_cast<float>(a);
+  }
+
+  // Kutunun merkezini ve yönünü dünya çerçevesine taşır. Mesafe ve en yakın nokta
+  // LiDAR çerçevesinde kalır (onlar takipte kullanılmaz, olduğu gibi yayınlanır).
+  static void kutuyuDunyaya(nesne::Kutu & k, const nesne::Poz2 & poz)
+  {
+    double wx, wy;
+    poz.dunyaya(k.cx, k.cy, wx, wy);
+    k.cx = static_cast<float>(wx);
+    k.cy = static_cast<float>(wy);
+    k.yon = yonDuzelt(k.yon + poz.yaw);
+  }
+
+  static void kutuyuLidara(nesne::Kutu & k, const nesne::Poz2 & poz)
+  {
+    double px, py;
+    poz.lidara(k.cx, k.cy, px, py);
+    k.cx = static_cast<float>(px);
+    k.cy = static_cast<float>(py);
+    k.yon = yonDuzelt(k.yon - poz.yaw);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Kümelerin dinamik kanıtı. Bir kümenin yeterli kısmı (dinamik_min_nokta ve dinamik_oran)
+  // hareketliyse kanıt var. Yaya duvarın / park etmiş aracın dibinden geçerken ikisi tek
+  // kümede birleşir; o zaman oran düşük kalır. Böyle büyük bir kümede yeterince hareketli
+  // nokta varsa, hareketli noktalar ayrıca kümelenip kendi kutularını alır, kalanı
+  // (duvar) ayrı kalır.
+  // ---------------------------------------------------------------------------
+  static void dinamikleriAyir(
+    const nesne::Bulut & bulut, const std::vector<uint8_t> & isaret, const Ayarlar & a,
+    std::vector<std::vector<int>> & kumeler, std::vector<bool> & kanit)
+  {
+    const int min_nokta = a.dinamik_min_nokta;
+    std::vector<std::vector<int>> eklenen;
+    kanit.assign(kumeler.size(), false);
+    for (size_t i = 0; i < kumeler.size(); ++i) {
+      auto & kume = kumeler[i];
+      std::vector<int> hareketli;
+      for (int j : kume) {
+        if (isaret[j]) {hareketli.push_back(j);}
+      }
+      const int sayi = static_cast<int>(hareketli.size());
+      if (sayi < min_nokta) {
+        continue;
+      }
+      if (sayi >= a.dinamik_oran * kume.size()) {
+        kanit[i] = true;
+        continue;
+      }
+      if (sayi < 2 * min_nokta) {
+        continue;  // ayırmaya yetecek kadar hareketli nokta yok
+      }
+      // Hareketli noktaları kendi aralarında kümele
+      nesne::Bulut::Ptr alt(new nesne::Bulut);
+      alt->reserve(hareketli.size());
+      for (int j : hareketli) {alt->push_back(bulut[j]);}
+      nesne::KumeAyari ka = a.kume();
+      ka.min_nokta = min_nokta;
+      const auto alt_kumeler = nesne::kumele(alt, ka);
+      if (alt_kumeler.empty()) {
+        continue;
+      }
+      std::vector<uint8_t> alindi(bulut.size(), 0);
+      for (const auto & ak : alt_kumeler) {
+        std::vector<int> yeni;
+        yeni.reserve(ak.size());
+        for (int k : ak) {
+          yeni.push_back(hareketli[k]);
+          alindi[hareketli[k]] = 1;
+        }
+        eklenen.push_back(std::move(yeni));
+      }
+      kume.erase(std::remove_if(kume.begin(), kume.end(), [&alindi](int j) {return alindi[j];}),
+        kume.end());
+    }
+    // Ayrılan hareketli kümeler kanıtlı olarak eklenir; çok küçülen ana kümeler atılır
+    for (auto & e : eklenen) {
+      kumeler.push_back(std::move(e));
+      kanit.push_back(true);
+    }
+    size_t yaz = 0;
+    for (size_t i = 0; i < kumeler.size(); ++i) {
+      if (static_cast<int>(kumeler[i].size()) < std::min(a.kume_min_nokta, min_nokta)) {
+        continue;
+      }
+      if (yaz != i) {
+        kumeler[yaz] = std::move(kumeler[i]);
+        kanit[yaz] = kanit[i];
+      }
+      ++yaz;
+    }
+    kumeler.resize(yaz);
+    kanit.resize(yaz);
+  }
+
+  // /nesne/odometri: aracın (LiDAR'ın) dünya çerçevesindeki konumu ve hızı
+  void odometriYayinla(const std_msgs::msg::Header & header, const nesne::OdometriSonucu & o)
+  {
+    nav_msgs::msg::Odometry m;
+    m.header.stamp = header.stamp;
+    m.header.frame_id = "lidar_odom";
+    m.child_frame_id = header.frame_id;
+    m.pose.pose.position.x = o.poz.x;
+    m.pose.pose.position.y = o.poz.y;
+    m.pose.pose.orientation.z = std::sin(o.poz.yaw / 2.0);
+    m.pose.pose.orientation.w = std::cos(o.poz.yaw / 2.0);
+    m.twist.twist.linear.x = o.vx;
+    m.twist.twist.linear.y = o.vy;
+    m.twist.twist.angular.z = o.wz;
+    // Basit güven göstergesi: başarısız turda belirsizlik çok büyük
+    const double var = o.gecerli ? 0.01 : 100.0;
+    for (int i : {0, 7, 35}) {
+      m.pose.covariance[i] = var;
+      m.twist.covariance[i] = var;
+    }
+    odometri_pub_->publish(m);
   }
 
   // ---------------------------------------------------------------------------
@@ -700,21 +995,19 @@ private:
   // ---------------------------------------------------------------------------
   // /nesne/liste mesajı
   // ---------------------------------------------------------------------------
-  // statik_gizle açıksa hiç hareket etmemiş nesneler listeye girmez; uyarı alanındakiler
-  // (aracın önündeki duran engeller) her zaman girer.
+  // sadece_dinamik açıksa listeye sadece dinamik nesneler ve yol koridorundakiler girer.
   robotaksi_msgs::msg::NesneDizisi listeOlustur(
     const std_msgs::msg::Header & header, const std::vector<nesne::Takipci::Iz> & izler,
-    const Ayarlar & a) const
+    const nesne::OdometriSonucu & odom, const Ayarlar & a) const
   {
     robotaksi_msgs::msg::NesneDizisi dizi;
     dizi.header = header;
     dizi.nesneler.reserve(izler.size());
     for (const auto & iz : izler) {
-      const auto & k = iz.kutu;
-      const bool uyari_alaninda = yelpaze_.iceride(k.yakin_x, k.yakin_y);
-      if (a.statik_gizle && !iz.hareketli && !uyari_alaninda) {
+      if (a.sadece_dinamik && !iz.dinamik && !iz.yol_uzerinde) {
         continue;
       }
+      const auto & k = iz.kutu;
       robotaksi_msgs::msg::Nesne n;
       n.id = iz.id;
       n.etiket = iz.etiket;
@@ -730,28 +1023,31 @@ private:
       n.en_yakin_nokta.z = k.yakin_z;
       n.mesafe = k.mesafe;
       n.tepe_yuksekligi = k.tepe_yuksekligi;
-      // Yapılar (duvar vb.) hareket etmez. Görünen kısmı değiştikçe kutu merkezi
-      // kaydığı için Kalman sahte bir hız hesaplar; onu yayınlamayalım.
-      const bool yapi = iz.etiket == nesne::ETIKET_YAPI;
-      const double vx = yapi ? 0.0 : iz.vx;
-      const double vy = yapi ? 0.0 : iz.vy;
+      // Yere göre hız: sadece dinamik nesnelerde. Duranların Kalman hızı ölçüm gürültüsüdür
+      // (görünen yüzü değiştikçe kutu merkezi kayar); yayınlanmaz.
+      const double vx = iz.dinamik ? iz.vx : 0.0;
+      const double vy = iz.dinamik ? iz.vy : 0.0;
       n.hiz.x = vx;
       n.hiz.y = vy;
       n.nokta_sayisi = static_cast<uint32_t>(k.nokta_sayisi);
       n.yas = iz.yas;
 
-      // Yaklaşma hızı: hızın LiDAR'a doğru bileşeni (+ = yaklaşıyor)
+      // Yaklaşma hızı ARACA göre: nesnenin hızı - aracın hızı - aracın dönüşünden gelen
+      // kayma (ω × konum). Araç 1 m/s giderken önündeki duran engel 1 m/s yaklaşır.
+      const double rvx = vx - odom.vx + odom.wz * k.cy;
+      const double rvy = vy - odom.vy - odom.wz * k.cx;
       const double r = std::sqrt(k.cx * k.cx + k.cy * k.cy);
-      n.yaklasma_hizi = r > 1e-3 ? static_cast<float>(-(vx * k.cx + vy * k.cy) / r) : 0.0f;
+      n.yaklasma_hizi = r > 1e-3 ? static_cast<float>(-(rvx * k.cx + rvy * k.cy) / r) : 0.0f;
       n.carpisma_suresi = n.yaklasma_hizi > 0.05f ? n.mesafe / n.yaklasma_hizi : -1.0f;
 
-      n.uyari_alaninda = uyari_alaninda;
-      n.hareketli = iz.hareketli;
+      n.uyari_alaninda = yelpaze_.iceride(k.yakin_x, k.yakin_y);
+      n.yol_uzerinde = iz.yol_uzerinde;
+      n.hareketli = iz.dinamik;
 
-      // Güven (kural tabanlı): etiket kuralına uyuyor 0.6, hareket etmiş yaya +0.3,
+      // Güven (kural tabanlı): etiket kuralına uyuyor 0.6, hareket eden yaya +0.3,
       // uzun süredir takipte +0.1
       double guven = 0.6;
-      if (iz.etiket == nesne::ETIKET_YAYA && iz.hareketli) {guven += 0.3;}
+      if (iz.etiket == nesne::ETIKET_YAYA && iz.dinamik) {guven += 0.3;}
       if (iz.yas >= 10) {guven += 0.1;}
       n.guven = static_cast<float>(std::min(1.0, guven));
 
@@ -884,6 +1180,26 @@ private:
       dizi.markers.push_back(alan);
     }
 
+    // Yol koridoru: zemin hizasında yeşilimsi dikdörtgen (içindeki her nesne gösterilir)
+    {
+      Marker koridor;
+      koridor.header = header;
+      koridor.ns = "nesne_koridor";
+      koridor.id = 0;
+      koridor.type = Marker::LINE_STRIP;
+      koridor.action = Marker::ADD;
+      koridor.pose.orientation.w = 1.0;
+      koridor.scale.x = 0.04;
+      koridor.color = renk(0.3f, 1.0f, 0.5f, 0.7f);
+      const double z = zemin_.duzlem().merkezZ() + 0.02;
+      const double x0 = a.koridorBasi(), x1 = a.koridor_uzunluk, y = a.koridor_genislik / 2.0;
+      const double koseler[5][2] = {{x0, y}, {x1, y}, {x1, -y}, {x0, -y}, {x0, y}};
+      for (const auto & k : koseler) {
+        koridor.points.push_back(nokta(k[0], k[1], z));
+      }
+      dizi.markers.push_back(koridor);
+    }
+
     int id = 0;
     for (const auto & n : liste.nesneler) {
       const double c = std::cos(n.yon), s = std::sin(n.yon);
@@ -904,7 +1220,7 @@ private:
 
       // 1) Kutu: 12 kenarlı kafes
       Marker kafes = yeni(Marker::LINE_LIST);
-      kafes.scale.x = n.uyari_alaninda ? 0.08 : 0.03;  // yelpaze içindeyse kalın
+      kafes.scale.x = n.yol_uzerinde ? 0.08 : 0.04;  // yol koridorundaysa kalın
       kafes.color = renk_;
       geometry_msgs::msg::Point kose[8];
       const double isaret[4][2] = {{1, 1}, {-1, 1}, {-1, -1}, {1, -1}};
@@ -923,8 +1239,8 @@ private:
       }
       dizi.markers.push_back(kafes);
 
-      // 2) Yelpaze içindeyse yarı saydam dolgu
-      if (n.uyari_alaninda) {
+      // 2) Yol koridorundaysa yarı saydam dolgu
+      if (n.yol_uzerinde) {
         Marker dolgu = yeni(Marker::CUBE);
         dolgu.pose.position = n.merkez;
         dolgu.pose.orientation.z = std::sin(n.yon / 2.0);
@@ -934,9 +1250,8 @@ private:
         dizi.markers.push_back(dolgu);
       }
 
-      // 3) Yazı: "#12 YAYA? 3.4 m" (+ hareketliyse hız). Hiç hareket etmemiş nesnelerin
-      // Kalman hızı sadece gürültüdür, yazılmaz.
-      const double hiz = n.hareketli ? std::hypot(n.hiz.x, n.hiz.y) : 0.0;
+      // 3) Yazı: "#12 YAYA? 3.4 m" (+ hareketliyse hız; duran nesnenin hızı zaten 0)
+      const double hiz = std::hypot(n.hiz.x, n.hiz.y);
       Marker yazi = yeni(Marker::TEXT_VIEW_FACING);
       yazi.pose.position = nokta(n.merkez.x, n.merkez.y, ust + 0.3);
       yazi.scale.z = 0.25;
@@ -972,7 +1287,10 @@ private:
   // ---------------------------------------------------------------------------
   Ayarlar ayarlar_;
   nesne::ZeminAyirici zemin_;
+  nesne::LidarOdometri odometri_;
+  nesne::DinamikAyirici dinamik_;
   nesne::Takipci takipci_;
+  double son_zaman_ = -1.0;  // son bulutun zamanı (odometri kapalıyken kopukluk tespiti)
   // Zemin uyum durumu (zeminiKontrolEt)
   static constexpr int UYUM_TUR = 10;  // 10 Hz'de 1 sn
   bool zemin_uyumlu_ = false;
@@ -998,6 +1316,8 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr zemin_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr zemin_disi_pub_;
   rclcpp::Publisher<robotaksi_msgs::msg::ZeminDurumu>::SharedPtr zemin_durumu_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr dinamik_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometri_pub_;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
 };
 
