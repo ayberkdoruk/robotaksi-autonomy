@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>arac_haberlesme</name>
+  <version>0.1.0</version>
+  <description>Araç ile haberleşme katmanı: Teensy'ye yazan tek düğüm (serial_comm_node, /arac/komut -> 5 byte seri paket) ve kumanda okuyucu (gamepad_node)</description>
+  <maintainer email="ayberkdoruk.dev@gmail.com">Ayberk Doruk</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>robotaksi_msgs</depend>
+
+  <!-- gamepad_node (Python) -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>python3-pygame</exec_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

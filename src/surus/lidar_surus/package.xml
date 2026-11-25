@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>lidar_surus</name>
+  <version>0.1.0</version>
+  <description>LiDAR ile sürüş yöntemi: düz git, yelpazede engel ya da yol koridorunda nesne (yaya) görünce dur</description>
+  <maintainer email="ayberkdoruk.dev@gmail.com">Ayberk Doruk</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>robotaksi_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+
+  <!-- lidar_surus.launch.py: sürücü + algılama + araç katmanı -->
+  <exec_depend>rslidar_sdk</exec_depend>
+  <exec_depend>lidar_algilama</exec_depend>
+  <exec_depend>arac_haberlesme</exec_depend>
+  <exec_depend>robotaksi_baslat</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

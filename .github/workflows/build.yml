@@ -34,4 +34,4 @@ jobs:
             --cmake-args -DCMAKE_BUILD_TYPE=Release
 
       - name: Python sözdizimi kontrolü
-        run: python3 -m compileall -q src/araclar/kontrol_merkezi/scripts
+        run: python3 -m compileall -q src/araclar/kontrol_merkezi/scripts src/arac/arac_haberlesme/scripts

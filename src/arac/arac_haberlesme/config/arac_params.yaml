@@ -1,0 +1,21 @@
+# serial_comm_node parametreleri (arac_haberlesme)
+# DİKKAT: Ondalıklı parametreleri "0.3" gibi noktalı yazın.
+serial_comm_node:
+  ros__parameters:
+    # Önce /dev/serial/by-id altında adında "Teensy" geçen cihaz aranır; bulunamazsa bu yol.
+    port: "/dev/ttyACM0"
+
+    # Sürüş yönteminin /arac/komut mesajı bu süreden eskiyse OTONOMDA fren (saniye).
+    # Yöntem çökerse / donarsa araç böylece durur. Firmware'in kendi zaman aşımı 0.3 sn.
+    komut_zaman_asimi: 0.3
+
+    # true: kumanda (gamepad_node) taze değilse HİÇ paket gönderme -> Teensy kendisi frenler.
+    require_gamepad: false
+
+    # OTONOMDAYKEN kumanda koparsa: false = sürüş devam eder, true = fren.
+    # MANUELDEYKEN kumanda koparsa her zaman fren basılır.
+    otonomda_kumanda_zorunlu: false
+
+    # true: Teensy'ye hiçbir şey YAZMAZ, sadece /arac/gonderilen'e yayınlar (masada deneme).
+    # Launch'ta "kuru:=true" ile açılır.
+    kuru_calisma: false

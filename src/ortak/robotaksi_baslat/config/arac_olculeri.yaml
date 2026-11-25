@@ -1,0 +1,45 @@
+# ARAÇ ÖLÇÜLERİ — aracın başında metreyle ölçüp buraya yazın.
+#
+# Bu dosya ROS parametre dosyası DEĞİLDİR. lidar_surus.launch.py okur ve algılama ayarlarını
+# (zemin, gövde kutusu, yol koridoru, engel yelpazesi, DUR mesafeleri) bu sayılardan
+# HESAPLAR. Hesaplanan değerler açılışta terminale yazılır.
+#
+# Değiştirdikten sonra derlemeye gerek yok: launch'ı yeniden başlatmanız yeterli
+# (colcon build --symlink-install ile kurulduysa).
+#
+# Hepsi METRE, hepsi LiDAR'ın MERKEZİNDEN ölçülür. Yukarıdan bakınca:
+#
+#                     ön tampon
+#                 ┌──────┬──────┐   ▲
+#                 │      │      │   │ lidar_on_tampon
+#      sol kenar  │◄────[L]────►│   ▼        sağ kenar
+#   lidar_sol_kenar      │      lidar_sag_kenar
+#                 │      │      │   ▲
+#                 └──────┴──────┘   │ lidar_arka_tampon
+#                    arka tampon    ▼
+#
+# LiDAR'ın x ekseni aracın ÖNÜNE bakmalı (RViz'de aracın önünde duran kişi kırmızı eksen
+# üzerinde görünmeli). Yol koridoru her zaman LiDAR'ın tam önündedir.
+#
+# Hepsi 0 ise dosya doldurulmamış sayılır: araçta (kuru:=false) launch AÇILMAZ, masada
+# (kuru:=true) masa ayarlarıyla devam edilir.
+
+# Aracın kendisi (yarışma raporu, Tablo 4): uzunluk 2.15, genişlik 1.25, yükseklik 1.50 m.
+# Yani lidar_on_tampon + lidar_arka_tampon = 2.15 ve lidar_sol_kenar + lidar_sag_kenar = 1.25
+# (aynalar taşıyorsa daha fazla). LiDAR ortadaysa sol = sağ = 0.63.
+
+# --- 1) ÖLÇÜLER (metreyle) ---
+# 2026-11-25: SolidWorks çiziminden (yandan görünüş) okundu: LiDAR ön çamurluğun hemen
+# arkasında bir direğin üstünde. Araçta metreyle doğrulayın; özellikle LiDAR'ın ortada olduğunu.
+lidar_yukseklik: 1.00    # yerden LiDAR'ın merkezine (CAD: 779 mm teker merkezinden + ~223 mm teker yarıçapı)
+lidar_on_tampon: 0.10    # LiDAR'dan aracın en ön noktasına (ön çamurluk), ileri doğru (CAD)
+lidar_arka_tampon: 2.05  # LiDAR'dan aracın en arka noktasına (2.15 araç boyu − 0.10)
+lidar_sol_kenar: 0.625   # LiDAR'dan aracın sol kenarına (1.25 genişlik, LiDAR ortada VARSAYILDI)
+lidar_sag_kenar: 0.625   # LiDAR'dan aracın sağ kenarına (1.25 genişlik, LiDAR ortada VARSAYILDI)
+
+# --- 2) TERCİHLER (ölçü değil, istersen değiştir) ---
+durma_boslugu: 2.0       # engel / yaya ÖN TAMPONA bu kadar yaklaşınca DUR
+dikkat_boslugu: 4.0      # ön tampona bu kadar yaklaşınca DİKKAT
+yan_pay: 0.35            # yol koridoru aracın iki yanından bu kadar taşar
+zemin_payi: 0.15         # yerden bu yüksekliğin altı engel sayılmaz (zemin, tümsek)
+govde_payi: 0.10         # aracın kendi gövdesinin çevresinde yok sayılan pay

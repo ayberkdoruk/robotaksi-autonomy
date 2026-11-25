@@ -4,6 +4,7 @@ project(robotaksi_baslat)
 # Derlenecek kod yok: ekibin ortak ROS ortamı ve ayarları.
 #   scripts/ros_ortami.sh            : masaüstü kısayollarıyla açılan betiklerin yüklediği ortam
 #   config/fastdds_buyuk_mesaj.xml   : büyük mesajlar (nokta bulutu) için Fast DDS ayarı
+#   config/arac_olculeri.yaml        : aracın ölçüleri (LiDAR konumu); algılama geometrisi bundan hesaplanır
 find_package(ament_cmake REQUIRED)
 
 install(DIRECTORY config scripts

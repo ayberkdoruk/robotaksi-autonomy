@@ -1,0 +1,47 @@
+# lidar_surus parametreleri. Hepsi çalışırken değiştirilebilir:
+#   ros2 param set /lidar_surus <ad> <deger>
+# DİKKAT: Ondalıklı parametreleri "3.0" gibi noktalı yazın.
+lidar_surus:
+  ros__parameters:
+    # Açılışta FREN. Kalkmak için: ros2 param set /lidar_surus surus_aktif true
+    surus_aktif: false
+
+    # Düz gitmek için direksiyon (Teensy birimi, 25 sol .. 165 sağ). Ekipte düz = 84 kabul
+    # ediliyor; serial_comm 5'lik bloğa yuvarladığı için Teensy'ye 82 gider.
+    # Araç bir yana çekiyorsa burayı değiştirin (5'er adım: 79 -> 77, 89 -> 87 ...).
+    duz_direksiyon: 84
+
+    # Hangi algılama kullanılsın? Kullanılan bir topic veri_zaman_asimi'ndan uzun süre
+    # gelmezse araç FREN yapar (LiDAR ya da düğüm düşerse araç durur).
+    engel_kullan: true        # /engel/durum: yelpazede DUR -> dur (mesafe engel_node'da: dur_mesafesi)
+    nesne_kullan: true        # /nesne/liste: yol koridorundaki nesneler (yaya, araç, kutu...)
+    veri_zaman_asimi: 0.5     # saniye
+
+    # Yol koridorundaki (nesne_node: koridor_genislik x koridor_uzunluk) nesneler için.
+    # Mesafeler LiDAR'dan ölçülür. arac_olculeri.yaml doluysa launch nesne_dur_mesafesi ve nesne_dikkat_mesafesi'ni oradan
+    # hesaplar (ön tampon + durma_boslugu / dikkat_boslugu) ve buradakilerin üstüne yazar.
+    nesne_dur_mesafesi: 3.0      # bundan yakınsa DUR (metre)
+    carpisma_suresi_dur: 2.5     # çarpışmaya bundan az kaldıysa DUR (saniye)
+    nesne_dikkat_mesafesi: 6.0   # bundan yakınsa DIKKAT (metre)
+
+    # DIKKAT'te gaz kesilsin mi (fren yok, araç boşta yavaşlar). false: DIKKAT sadece bildirilir.
+    dikkatte_gaz_kes: false
+
+    # DUR'dan sonra (ve aktif edilince) yol bu kadar süre boş kalmadan kalkma (saniye)
+    kalkis_bekleme: 2.0
+
+    # Aktif edildikten bu kadar saniye sonra fren yap ve dur (0 = sınırsız). İlk denemelerde
+    # pist uzunluğuna göre verin (ör. 1 m/s ile 15 m için 15.0). Tekrar kalkmak için
+    # surus_aktif'i false yapıp yeniden true yapın.
+    azami_surus_suresi: 0.0
+
+    # --- Yön tutma: aracın düz gitmesi ---
+    # "kapali": direksiyon hep duz_direksiyon (araç saparsa düzeltilmez).
+    # "lidar" : yön /nesne/odometri'den (LiDAR taramaları; ek donanım gerekmez).
+    # "imu"   : yön imu_topic'ten (ZED 2'nin IMU'su; ZED sürücüsü açık ve IMU yayını açık olmalı).
+    # Sürüş başlatıldığı andaki yön hedef alınır: aracı düz yerleştirip öyle başlatın.
+    # Seçilen kaynak veri_zaman_asimi'ndan uzun süre gelmezse araç FREN yapar.
+    yon_tutma: "kapali"
+    yon_kazanc: 1.0          # 1 derece sapmada direksiyon kaç birim düzeltilsin
+    yon_siniri: 15           # en fazla bu kadar birim düzeltme (direksiyon 84 ± 15)
+    imu_topic: "/zed/zed_node/imu/data"

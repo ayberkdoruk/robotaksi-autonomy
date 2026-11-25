@@ -86,7 +86,9 @@ flowchart LR
     S -->|/rslidar_points| N[nesne_node]
     E -->|/engel/durum| D[Sürüş yöntemleri<br/>src/surus/*]
     N -->|/nesne/liste<br/>/nesne/odometri| D
-    D -.->|araç komutu<br/>tanımlanacak| A[arac/<br/>Teensy katmanı]
+    D -->|/arac/komut| A[serial_comm_node<br/>arac_haberlesme]
+    G[gamepad_node] -->|/gamepad/state| A
+    A -->|USB seri, 50 Hz| T[Teensy]
     K[Kontrol Merkezi] -.->|başlatır, ayarlar| E
     K -.->|başlatır, ayarlar| N
     K -.->|kayıt al / oynat| S
@@ -106,8 +108,8 @@ yöntemi karar verir. Algoritmalar ROS'tan bağımsız C++ modüllerindedir
 | `nesne_node` — zemin, kümeleme, kutu, etiket, takip | ✅ Gerçek kayıtlarla çalışıyor |
 | `nesne_node` — LiDAR odometri + hareketli nesne + yol koridoru | 🟡 Sabit LiDAR kayıtlarında doğrulandı; araç hareketliyken doğrulama sürüyor |
 | Kontrol Merkezi ve ayar paneli | 🟡 Çalışıyor; sahada uçtan uca deneme sürüyor |
-| `arac/` — Teensy ile araç komut katmanı | ⏳ Planlandı |
-| `surus/` — sürüş yöntemleri | ⏳ Planlandı |
+| `arac_haberlesme` — Teensy ile araç komut katmanı | 🟡 Derleniyor, masada (kuru) açılıyor; araçta deneme sürüyor |
+| `lidar_surus` — düz git, engel / yaya görünce dur | 🟡 Araçta deneme sürüyor |
 | LiDAR + kamera füzyonu | ⏳ Planlandı |
 
 ---
@@ -149,9 +151,9 @@ katmana ne konacağını anlatan kısa bir README var.
 |---|---|---|
 | [`ortak/`](src/ortak/) | Herkesin kullandığı mesajlar ve ortam | [`robotaksi_msgs`](src/ortak/robotaksi_msgs/) (ortak mesajlar), [`robotaksi_baslat`](src/ortak/robotaksi_baslat/) (ortak ROS ortamı, Fast DDS ayarı) |
 | [`surucular/`](src/surucular/) | Sensör sürücüleri | `rslidar_sdk`, `rslidar_msg` (dış depo) + [`yamalar/`](src/surucular/yamalar/) |
-| [`arac/`](src/arac/) | Araca komut katmanı (Teensy ile haberleşme) | henüz yok |
+| [`arac/`](src/arac/) | Araca komut katmanı (Teensy ile haberleşme) | [`arac_haberlesme`](src/arac/arac_haberlesme/README.md) — `serial_comm_node` (Teensy'ye yazan tek düğüm), `gamepad_node` |
 | [`algilama/`](src/algilama/) | Sensör verisinden çevreyi anlama | [`lidar_algilama`](src/algilama/lidar_algilama/README.md) — LiDAR ile engel durumu ve nesne algılama |
-| [`surus/`](src/surus/) | Sürüş yöntemleri (her yöntem ayrı paket) | henüz yok |
+| [`surus/`](src/surus/) | Sürüş yöntemleri (her yöntem ayrı paket) | [`lidar_surus`](src/surus/lidar_surus/README.md) — düz git, engel / yaya görünce dur |
 | [`araclar/`](src/araclar/) | Geliştirme araçları | [`kontrol_merkezi`](src/araclar/kontrol_merkezi/README.md) — tek pencereli arayüz, ayar paneli, kayıt/oynat |
 
 Bağımlılık yönü tek taraflıdır: `kontrol_merkezi → lidar_algilama → robotaksi_msgs`. Algılama
@@ -171,7 +173,7 @@ paketleri arayüzleri bilmez.
 Ek sistem paketleri:
 
 ```bash
-sudo apt install python3-vcstool ros-jazzy-pcl-conversions libpcl-dev ros-jazzy-python-qt-binding python3-yaml zenity
+sudo apt install python3-vcstool ros-jazzy-pcl-conversions libpcl-dev ros-jazzy-python-qt-binding python3-yaml zenity python3-pygame
 ```
 
 > `zenity` sadece kayıt/oynatma betiklerinin isim sorma ve klasör seçme pencereleri için gerekir.
@@ -292,6 +294,15 @@ ros2 launch kontrol_merkezi lidar_sistem.launch.py
 
 Sadece algılama düğümleri: [`lidar_algilama`](src/algilama/lidar_algilama/README.md).
 
+Aracı LiDAR ile sürmek (sürücü + algılama + Teensy + kumanda + `lidar_surus`; araç açılışta frende):
+
+```bash
+ros2 launch lidar_surus lidar_surus.launch.py
+ros2 param set /lidar_surus surus_aktif true    # kalk  (false: dur)
+```
+
+Ayrıntılar: [`lidar_surus`](src/surus/lidar_surus/README.md), [`arac_haberlesme`](src/arac/arac_haberlesme/README.md).
+
 ---
 
 ## 🧭 Kendi sürüş yönteminizi ekleme
@@ -304,8 +315,8 @@ Sadece algılama düğümleri: [`lidar_algilama`](src/algilama/lidar_algilama/RE
    ```
 
 2. Sensörlerden ve algılama paketlerinden istediğiniz topic'leri okuyun (aşağıdaki tablo).
-3. Araca komutu `arac/` katmanının dinleyeceği ortak komut topic'ine yazın (mesajı `robotaksi_msgs`
-   içinde tanımlanınca).
+3. Araca komutu `/arac/komut` ([`AracKomutu`](src/ortak/robotaksi_msgs/msg/AracKomutu.msg)) topic'ine
+   **sürekli** (≥ 10 Hz) yazın; 0.3 sn yazmazsanız araç fren yapar. Örnek: [`lidar_surus`](src/surus/lidar_surus/).
 4. `ortak/`, `surucular/`, `arac/` paketlerinde değişiklik gerekiyorsa ekiple konuşun — bunlar herkesin
    yöntemini etkiler.
 
@@ -322,7 +333,9 @@ Sürüş yöntemlerinin okuyabileceği / yazacağı topic'ler. Ayrıntılı alan
 | `/nesne/liste` | [`robotaksi_msgs/NesneDizisi`](src/ortak/robotaksi_msgs/msg/NesneDizisi.msg) | `nesne_node` | Hareketli nesneler + yol koridorundaki engeller: kutu, mesafe, etiket, hız, çarpışma süresi |
 | `/nesne/odometri` | `nav_msgs/Odometry` | `nesne_node` | Aracın LiDAR taramalarından bulunan hareketi (konum, hız) |
 | `/nesne/zemin_durumu` | [`robotaksi_msgs/ZeminDurumu`](src/ortak/robotaksi_msgs/msg/ZeminDurumu.msg) | `nesne_node` | Ölçülen zemin düzlemi (yükseklik, eğim) ve ayarlardaki beklenenle uyumlu mu |
-| *(araç komutu)* | *henüz tanımlanmadı* | sürüş yöntemi | `arac/` katmanının dinleyeceği ortak komut |
+| `/arac/komut` | [`robotaksi_msgs/AracKomutu`](src/ortak/robotaksi_msgs/msg/AracKomutu.msg) | sürüş yöntemi | Araca komut: direksiyon (25–165), gaz, fren, geri. ≥ 10 Hz yayınlanmalı, 0.3 sn gelmezse fren |
+| `/arac/gonderilen` | `robotaksi_msgs/AracKomutu` | `serial_comm_node` | Teensy'ye gerçekten giden paket; `kaynak` = `manuel` / `otonom` / `fren:<sebep>` |
+| `/arac/surus_modu` | `std_msgs/Int32` | `serial_comm_node` | 0 paket yok, 1 manuel, 2 otonom, 3 güvenlik freni |
 
 Konumlar sensörün kendi frame'indedir: **x = ileri, y = sol, z = yukarı**, birim metre; mesajlardaki
 açılar radyandır.
@@ -340,16 +353,18 @@ robotaksi_ws/
 ├── docs/images/                     # README görselleri
 └── src/
     ├── ortak/
-    │   ├── robotaksi_msgs/          # ortak mesajlar (EngelDurumu, Nesne, NesneDizisi, ZeminDurumu)
+    │   ├── robotaksi_msgs/          # ortak mesajlar (EngelDurumu, Nesne, NesneDizisi, ZeminDurumu, AracKomutu)
     │   └── robotaksi_baslat/        # ros_ortami.sh, Fast DDS ayarı
     ├── surucular/
     │   ├── yamalar/                 # dış sürücülere uyguladığımız yamalar
     │   ├── rslidar_sdk/             # (dış depo, takip edilmez)
     │   └── rslidar_msg/             # (dış depo, takip edilmez)
-    ├── arac/                        # araca komut katmanı (henüz yok)
+    ├── arac/
+    │   └── arac_haberlesme/         # serial_comm_node (Teensy), gamepad_node
     ├── algilama/
     │   └── lidar_algilama/          # engel_node, nesne_node
-    ├── surus/                       # sürüş yöntemleri (henüz yok)
+    ├── surus/
+    │   └── lidar_surus/             # düz git, engel / yaya görünce dur
     └── araclar/
         └── kontrol_merkezi/         # Kontrol Merkezi, ayar paneli, kayıt/oynat
 ```
